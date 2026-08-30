@@ -1,0 +1,72 @@
+[worldserver]
+
+###################################################################################################
+# MOD-BOT-CHAT
+# Playerbots chat like Wrath private-server people. No Ollama / LLM.
+# Engine: canned social lines + live taxis/NPCs/quests/zones.
+# Trade ads are mod-trade-chat. Pass-by /hi is mod-well-met.
+###################################################################################################
+
+BotChat.Enable = 1
+BotChat.DebugEnabled = 0
+
+# Distances
+BotChat.SayDistance = 40.0
+BotChat.YellDistance = 100.0
+BotChat.RandomChatterRealPlayerDistance = 200.0
+BotChat.EventChatterRealPlayerDistance = 40.0
+
+# Replies
+BotChat.PlayerReplyChance.Say = 90
+BotChat.BotReplyChance.Say = 10
+BotChat.PlayerReplyChance.Channel = 80
+BotChat.BotReplyChance.Channel = 8
+BotChat.PlayerReplyChance.Party = 90
+BotChat.BotReplyChance.Party = 25
+BotChat.PlayerReplyChance.Guild = 70
+BotChat.BotReplyChance.Guild = 1
+BotChat.MaxBotsToPick = 1
+BotChat.EnableSocialConventions = 1
+BotChat.SocialCueSeconds = 45
+BotChat.DisableRepliesInCombat = 1
+BotChat.EnableWhisperReplies = 0
+BotChat.AlwaysReplyToPlayerQuestions = 1
+BotChat.QuestionReplyChanceBonus = 25
+
+BotChat.DisableForCustomChannels = 0
+BotChat.DisableForSayYell = 0
+BotChat.DisableForGuild = 0
+BotChat.DisableForParty = 0
+
+# Ambient
+BotChat.EnableRandomChatter = 1
+BotChat.MinRandomInterval = 45
+BotChat.MaxRandomInterval = 180
+BotChat.RandomChatterBotCommentChance = 18
+BotChat.EnableGuildRandomAmbientChatter = 1
+BotChat.GuildRandomChatterChance = 12
+BotChat.EnableChannelThreads = 1
+BotChat.ChannelThreadMaxLines = 24
+BotChat.TopicIdleSeconds = 180
+BotChat.ContinueTopicChance = 85
+BotChat.PreferThreadRegulars = 1
+
+# Events
+BotChat.EnableEventChatter = 1
+BotChat.EventChatterBotCommentChance = 25
+BotChat.EventChatterBotSelfCommentChance = 5
+BotChat.EventCooldownTime = 10
+BotChat.EnableGuildEventChatter = 1
+BotChat.GuildChatterBotCommentChance = 15
+
+# Knowledge
+BotChat.EnableGameKnowledge = 1
+BotChat.GameKnowledgeMaxFacts = 4
+
+# Typing delay
+BotChat.EnableTypingSimulation = 1
+BotChat.TypingSimulationBaseDelay = 800
+BotChat.TypingSimulationDelayPerChar = 60
+
+# Prefixes and addon announces (Questie, playerbot commands, ...)
+BotChat.BlacklistCommands = /s,/g,/p,/y,/w,/say,/guild,/party,/yell,/whisper,autogear,talents,reset botAI,summon,release,revive,leave,attack,follow,flee,stay,runaway,grind,do ,questie,Questie:,{rt1} Questie,{star} Questie,pfQuest
