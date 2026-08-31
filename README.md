@@ -2,11 +2,80 @@
 
 # mod-bot-chat
 
-A module for the [Playerbots AzerothCore fork](https://github.com/mod-playerbots/azerothcore-wotlk/tree/Playerbot) and [mod-playerbots](https://github.com/mod-playerbots/mod-playerbots).
+This module emulates World of Warcraft chat as it was in Wrath of the Lich King, back in the glory days — overlapping General, a guild that lumbers along, and a real conversation when you talk to someone.
 
-Playerbots talk in Say, General, Party, Guild, and Whisper. When a real player speaks, a local Ollama model (`llama3.1:8b` by default) writes a short reply from the recent thread. The same bot stays on that conversation if you switch channels. Idle General and guild chatter is filled from the bot's zone, quests, class, and dungeon, and the volume follows [mod-circadian-bots](https://github.com/muntedpissmole/mod-circadian-bots) population.
+Bots talk in Say, General, Party, Guild, and Whisper. General is overlapping short lines: quests, arguments, jokes, trash talk. Two topics can run at once:
 
-`gz` / `ty` / `wb` / `pst`, ding and death comments, and answers like `where fp` or `how do I get to stormwind` come from live game data. Trade ads are [mod-trade-chat](https://github.com/muntedpissmole/mod-trade-chat). Pass-by `/hi` is [mod-well-met](https://github.com/muntedpissmole/mod-well-met).
+```
+anyone in redridge
+uninstall wow pls
+tbc was better fight me
+need a tank for SM cath
+ulduar is one raid
+so true
+leeroy jenkins
+found the pally
+who asked
+died to pterrordax lmao
+ah is a scam
+lfm means look for ninja
+close the game
+```
+
+An argument can stick around for a few minutes:
+
+```
+wrath is faceroll
+you like it because its easy
+vanilla was harder
+you didnt even play tbc
+naxx 40 was a zoo
+still better than this
+reported
+```
+
+Guild lumbers as one conversation. At peak a line every 10–30 seconds:
+
+```
+wb
+ty
+whats everyone up to
+im down for whatever
+lfm toc 10 need 1 heal
+i can heal
+pst
+gz
+client froze again
+oof
+```
+
+Talk to a bot and it answers the actual line, then stays on that conversation if you switch channels:
+
+```
+You: where fp
+Bot: stormwind fp is down by the canals
+You: /w what
+Bot: the gryphon master, canals
+```
+
+```
+You: /g client froze again
+Bot: oof
+You: /w what
+Bot: the client, it froze
+```
+
+```
+[General] Bot: lfm tank
+You: what for
+Bot: pit of saron
+You: im tank
+Bot: pst
+```
+
+`gz` / `ty` / `wb` / `pst`, ding and death comments, and directions come from live game data. When you roast or banter, a local Ollama model (`llama3.1:8b`) writes the reply.
+
+If [mod-circadian-bots](https://github.com/muntedpissmole/mod-circadian-bots) is installed, chatter volume follows its hour tables — weekday, Saturday, and Sunday. 7pm is busy. Saturday stays late. Sunday drops like a school night. 3am is a ghost town.
 
 Needs Ollama running on the game box with `llama3.1:8b` (or another 7B/8B).
 
@@ -45,7 +114,7 @@ BotChat.DisableRepliesInCombat = 1
 | `BotChat.GuildRandomChatterChance` | Percent chance for guild ambient. |
 | `BotChat.ContinueTopicChance` | Percent chance ambient continues the current channel thread. |
 | `BotChat.TopicIdleSeconds` | Seconds before a thread is stale and a new topic may start. |
-| `BotChat.ScaleWithPopulation` | Ambient chance/interval follow random-bot online count. Player replies stay the same. |
+| `BotChat.ScaleWithPopulation` | Ambient chance and interval follow the online bot count (and the circadian hour curve when that module is on). Player replies stay the same. |
 | `BotChat.EnableSocialConventions` | `gz`/`ty`/`wb`/`pst` and activity replies. |
 | `BotChat.EnableGameKnowledge` | Answers `where fp` / `how do I get to X` from live taxis, NPCs, and quests. |
 | `BotChat.EnableEventChatter` | `gz`/`rip`/`gg` on dings, deaths, and duels. |
