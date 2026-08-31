@@ -4,11 +4,11 @@
 
 A module for the [Playerbots AzerothCore fork](https://github.com/mod-playerbots/azerothcore-wotlk/tree/Playerbot) and [mod-playerbots](https://github.com/mod-playerbots/mod-playerbots).
 
-Makes playerbots talk in Say, General, Party, and Guild like a Wrath private-server room: overlapping lines, in-game asks, occasional watercooler, continuing conversations, tone matching (including swearing and slurs when the player goes there first), and no repeated canned lines. `gz` / `ty` / `wb` / `pst` and flight-path answers come from the engine (live game data). When a real player talks — roast, banter, leftover chat — a local Ollama model writes one short line using the recent thread. Ambient General stays canned and realm-unique. Chatter volume follows `mod-circadian-bots` population. Do not use `llama3.2:3b`.
+Playerbots talk in Say, General, Party, Guild, and Whisper. When a real player speaks, a local Ollama model (`llama3.1:8b` by default) writes a short reply from the recent thread. The same bot stays on that conversation if you switch channels. Idle General and guild chatter is filled from the bot's zone, quests, class, and dungeon, and the volume follows [mod-circadian-bots](https://github.com/muntedpissmole/mod-circadian-bots) population.
 
-Trade ads (`WTS` / `LFM`) are [mod-trade-chat](https://github.com/muntedpissmole/mod-trade-chat). Pass-by `/hi` is [mod-well-met](https://github.com/muntedpissmole/mod-well-met). Do not run this next to [mod-ollama-chat](https://github.com/DustinHendrickson/mod-ollama-chat); they both hook chat.
+`gz` / `ty` / `wb` / `pst`, ding and death comments, and answers like `where fp` or `how do I get to stormwind` come from live game data. Trade ads are [mod-trade-chat](https://github.com/muntedpissmole/mod-trade-chat). Pass-by `/hi` is [mod-well-met](https://github.com/muntedpissmole/mod-well-met).
 
-Combat silence is on by default. Questie party announces and playerbot commands are ignored. Trade (`/2`) is treated as a board, not a conversation. Help answers never come from the model.
+Needs Ollama running on the game box with `llama3.1:8b` (or another 7B/8B).
 
 ## Installation
 
@@ -17,8 +17,6 @@ Combat silence is on by default. Questie party announces and playerbot commands 
 2. Recompile ./acore.sh compiler all
 3. Enable mod in the conf and restart worldserver
 ```
-
-If you still have `mod-ollama-chat` in `modules/`, disable it (`-DMODULE_MOD-OLLAMA-CHAT=disabled`). Pull `llama3.1:8b` (or another 7B/8B) in Ollama on the game box.
 
 ## Module Configuration
 
@@ -38,26 +36,26 @@ BotChat.DisableRepliesInCombat = 1
 | Option | Function |
 | --- | --- |
 | `BotChat.Enable` | Turns the module on or off. |
-| `BotChat.EnableLLM` | Local Ollama writes roast/banter lines when a real player spoke. Off = canned only. |
-| `BotChat.Model` | Ollama model. Use 7B/8B. `llama3.2:3b` paraphrases and invents places. |
+| `BotChat.EnableLLM` | Local Ollama writes replies when a real player talks. Off = canned lines only. |
+| `BotChat.Model` | Ollama model. 7B/8B recommended. |
 | `BotChat.EnableRandomChatter` | Ambient lines in General / Say / Guild when a real player can hear them. |
 | `BotChat.RandomChatterBotCommentChance` | Percent chance a due bot posts ambient in General/Say. |
 | `BotChat.MinRandomInterval` / `MaxRandomInterval` | Seconds between a given bot's ambient attempts. |
 | `BotChat.EnableGuildRandomAmbientChatter` | Guild `/g` ambient when a real player is in that guild. |
-| `BotChat.GuildRandomChatterChance` | Percent chance for guild ambient (not stacked on the General chance). |
-| `BotChat.ContinueTopicChance` | Percent chance ambient continues the current channel thread instead of a new topic. |
+| `BotChat.GuildRandomChatterChance` | Percent chance for guild ambient. |
+| `BotChat.ContinueTopicChance` | Percent chance ambient continues the current channel thread. |
 | `BotChat.TopicIdleSeconds` | Seconds before a thread is stale and a new topic may start. |
-| `BotChat.ScaleWithPopulation` | Ambient chance/interval follow random-bot online count (circadian pop). Player replies stay the same. |
-| `BotChat.EnableSocialConventions` | Canned `gz`/`ty`/`wb`/`pst` and activity replies instead of free text. |
-| `BotChat.EnableGameKnowledge` | Answer `where fp` / `how do I get to X` from live taxis, NPCs, and quests. |
-| `BotChat.EnableEventChatter` | Canned `gz`/`rip`/`gg` on dings, deaths, duels. Not dumped into General. |
-| `BotChat.DisableRepliesInCombat` | Do not reply while the bot is in combat. Player `/g` `/p` `/w` still get an answer. |
-| `BotChat.EnableWhisperReplies` | Answer real-player whispers. Uses guild/party/say context so `/w what` after `/g` stays on topic. |
-| `BotChat.DisableForCustomChannels` | Silence General (and other custom channels). |
-| `BotChat.DisableForSayYell` | Silence Say/Yell. |
-| `BotChat.DisableForGuild` | Silence Guild/Officer. |
-| `BotChat.DisableForParty` | Silence Party/Raid. |
-| `BotChat.BlacklistCommands` | Prefixes and addon announces to ignore (playerbot commands, Questie, …). |
+| `BotChat.ScaleWithPopulation` | Ambient chance/interval follow random-bot online count. Player replies stay the same. |
+| `BotChat.EnableSocialConventions` | `gz`/`ty`/`wb`/`pst` and activity replies. |
+| `BotChat.EnableGameKnowledge` | Answers `where fp` / `how do I get to X` from live taxis, NPCs, and quests. |
+| `BotChat.EnableEventChatter` | `gz`/`rip`/`gg` on dings, deaths, and duels. |
+| `BotChat.DisableRepliesInCombat` | Combat silence for ambient. Player `/g` `/p` `/w` still get an answer. |
+| `BotChat.EnableWhisperReplies` | Answer real-player whispers, keeping guild/party/say context. |
+| `BotChat.DisableForCustomChannels` | Turns off General (and other custom channels). |
+| `BotChat.DisableForSayYell` | Turns off Say/Yell. |
+| `BotChat.DisableForGuild` | Turns off Guild/Officer. |
+| `BotChat.DisableForParty` | Turns off Party/Raid. |
+| `BotChat.BlacklistCommands` | Prefixes and addon announces to skip (playerbot commands, Questie, …). |
 
 ## License
 

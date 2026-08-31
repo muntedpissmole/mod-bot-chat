@@ -2,7 +2,7 @@
 
 ###################################################################################################
 # MOD-BOT-CHAT
-# Wrath private-server room: overlapping short lines, real back-and-forth,
+# Real WoW chat: overlapping short lines, real back-and-forth,
 # tone matching, no canned loops. Engine owns channel/combat/Questie/Trade/
 # gz/help. Local Ollama only writes the sentence when a real player spoke.
 # Ambient volume follows mod-circadian-bots pop. Trade ads are
@@ -50,7 +50,7 @@ BotChat.EnableGuildRandomAmbientChatter = 1
 BotChat.GuildRandomChatterChance = 12
 BotChat.ScaleWithPopulation = 1
 BotChat.EnableChannelThreads = 1
-BotChat.ChannelThreadMaxLines = 24
+BotChat.ChannelThreadMaxLines = 48
 BotChat.TopicIdleSeconds = 180
 BotChat.ContinueTopicChance = 40
 BotChat.PreferThreadRegulars = 1

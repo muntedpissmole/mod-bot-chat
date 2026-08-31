@@ -195,7 +195,7 @@ inline std::string ChatLineSignature(std::string const& text)
     };
     static std::unordered_set<std::string> const vocab = {
         "anyone", "anybody", "else", "doing", "quest", "quests", "grind", "grinding",
-        "xp", "tank", "tanks", "pala", "paladin", "warrior", "mage", "priest", "druid",
+        "xp", "tank", "tanks", "pala", "pally", "paladin", "warrior", "mage", "priest", "druid",
         "rogue", "hunter", "shaman", "warlock", "dk", "heal", "healer", "healing", "dps",
         "grp", "group", "lfg", "lfm", "lf1m", "lf2m", "lf3m", "ah", "bank", "trainer",
         "fp", "inn", "port", "fly", "glyphs", "repair", "bill", "prices", "trash",
@@ -229,7 +229,7 @@ inline std::string ChatLineSignature(std::string const& text)
         "maze", "greens", "gold", "sink", "ages", "spare", "east", "guard",
         "boat", "stomach", "water", "keyboard", "desk", "phone", "sun",
         "empty", "buzzing", "bio", "addon", "error", "loading", "screen",
-        "can", "tank", "heal", "dps", "pala", "priest", "lvl"
+        "can", "tank", "heal", "dps", "pala", "pally", "priest", "lvl"
     };
 
     std::vector<std::string> tokens = SplitString(NormalizeChatLine(text), ' ');
@@ -255,6 +255,10 @@ inline bool ChatLineShapesMatch(std::string const& a, std::string const& b)
     std::string const sa = ChatLineSignature(a);
     std::string const sb = ChatLineSignature(b);
     if (sa.empty() || sb.empty() || sa != sb)
+        return false;
+    // Subject-first takes ("yowler is aids" vs "pterrordax is aids") share a
+    // slang frame. The subject is the joke — do not realm-block those.
+    if (sa[0] == '#')
         return false;
     // A single leftover token ("#", "tank") is too weak to block the whole realm.
     unsigned parts = 1;

@@ -17,6 +17,7 @@ struct ChannelThreadLine
     bool isBot = false;
     std::string text;
     time_t timestamp = 0;
+    uint32 topicId = 0;
 };
 
 std::string MakeThreadKey(Player* player, ChatChannelSourceLocal source, Channel* channel, Player* peer = nullptr);
@@ -34,6 +35,7 @@ std::string GetLastThreadText(const std::string& key);
 bool ThreadIsActive(const std::string& key, uint32_t idleSeconds);
 bool IsRecentSpeaker(const std::string& key, uint64_t speakerGuid);
 uint64_t GetLastBotSpeaker(const std::string& key);
+std::string GetLastBotText(const std::string& key);
 // Last bot this player could be answering, if that bot is in `candidates`.
 uint64_t FindRecentSharedBotSpeaker(Player* player, std::vector<Player*> const& candidates, uint32 idleSeconds);
 void NoteConversationBond(uint64_t playerGuid, uint64_t botGuid);
@@ -48,6 +50,21 @@ bool LineTooSimilarToRecent(const std::string& key, const std::string& text, uin
 bool LineRecentlySpoken(const std::string& text);
 void NoteSpokenLine(const std::string& text);
 uint32 CountTrailingBotLines(const std::string& key);
+// How many trailing bot lines this topic is allowed. Rolled once per topic;
+// a player jumping in can extend a short one into a room.
+uint32 GetThreadMaxTrail(std::string const& key);
+uint32 EnsureThreadMaxTrail(std::string const& key, bool engaged, bool inGuild);
+void ResetThreadMaxTrail(std::string const& key);
+// Start a second (or first) live topic. Returns its id. Max two live topics.
+uint32 BeginNewTopic(std::string const& key, bool inGuild);
+void PushPendingTopic(std::string const& key, uint32 topicId);
+uint32 CountLiveTopics(std::string const& key);
+uint32 GetTopicTrail(std::string const& key, uint32 topicId);
+uint32 GetTopicMaxTrail(std::string const& key, uint32 topicId);
+uint32 EnsureTopicMaxTrail(std::string const& key, uint32 topicId, bool engaged, bool inGuild);
+void NotePlayerIgnored(std::string const& key, bool ignored);
+// Last line of a live topic. With two live topics, may pick the older one.
+ChannelThreadLine PickThreadReplyTarget(std::string const& key);
 bool LastThreadSpeakerIsPlayer(const std::string& key);
 bool ThreadLooksLooped(const std::string& key);
 uint32 CountRecentPlayerLines(const std::string& key, uint32_t windowSeconds = 180);

@@ -164,7 +164,7 @@ BotChatRAGSystem* g_RAGSystem = nullptr;
 // Channel conversation threads
 // --------------------------------------------
 bool        g_EnableChannelThreads = true;
-uint32_t    g_ChannelThreadMaxLines = 24;
+uint32_t    g_ChannelThreadMaxLines = 48;
 uint32_t    g_TopicIdleSeconds = 180;
 uint32_t    g_ContinueTopicChance = 40;
 bool        g_PreferThreadRegulars = true;
@@ -330,14 +330,14 @@ static std::vector<std::string> SplitString(const std::string& str, char delim)
 void LoadBotPersonalityList()
 {    
     // Let's make sure our user has sourced the required sql file to add the new table
-    QueryResult tableExists = CharacterDatabase.Query("SELECT * FROM information_schema.tables WHERE table_schema = 'acore_characters' AND table_name = 'mod_ollama_chat_personality' LIMIT 1");
+    QueryResult tableExists = CharacterDatabase.Query("SELECT * FROM information_schema.tables WHERE table_schema = 'acore_characters' AND table_name = 'mod_bot_chat_personality' LIMIT 1");
     if (!tableExists)
     {
         LOG_ERROR("server.loading", "[Bot Chat] Please source the required database table first");
         return;
     }
 
-    QueryResult result = CharacterDatabase.Query("SELECT guid,personality FROM mod_ollama_chat_personality");
+    QueryResult result = CharacterDatabase.Query("SELECT guid,personality FROM mod_bot_chat_personality");
 
     if (!result)
     {
@@ -528,7 +528,7 @@ void LoadBotChatConfig()
     g_RAGPromptTemplate               = sConfigMgr->GetOption<std::string>("BotChat.RAGPromptTemplate", "RELEVANT INFORMATION:\n{rag_info}\nUse this for general WoW knowledge. Do not invent specific coordinates or quest givers from it.");
 
     g_EnableChannelThreads            = sConfigMgr->GetOption<bool>("BotChat.EnableChannelThreads", true);
-    g_ChannelThreadMaxLines           = sConfigMgr->GetOption<uint32_t>("BotChat.ChannelThreadMaxLines", 24);
+    g_ChannelThreadMaxLines           = sConfigMgr->GetOption<uint32_t>("BotChat.ChannelThreadMaxLines", 48);
     g_TopicIdleSeconds                = sConfigMgr->GetOption<uint32_t>("BotChat.TopicIdleSeconds", 180);
     g_ContinueTopicChance             = sConfigMgr->GetOption<uint32_t>("BotChat.ContinueTopicChance", 40);
     g_ScaleWithPopulation             = sConfigMgr->GetOption<bool>("BotChat.ScaleWithPopulation", true);
@@ -705,7 +705,7 @@ void LoadPersonalityTemplatesFromDB()
     g_PersonalityKeys.clear();
     g_PersonalityKeysRandomOnly.clear();
 
-    QueryResult result = CharacterDatabase.Query("SELECT `key`, `prompt`, `manual_only` FROM `mod_ollama_chat_personality_templates`");
+    QueryResult result = CharacterDatabase.Query("SELECT `key`, `prompt`, `manual_only` FROM `mod_bot_chat_personality_templates`");
     if (!result)
     {
         LOG_ERROR("server.loading", "[Bot Chat] No personality templates found in the database!");
@@ -735,7 +735,7 @@ void LoadPersonalityTemplatesFromDB()
 void LoadBotConversationHistoryFromDB()
 {
     QueryResult result = CharacterDatabase.Query(
-        "SELECT bot_guid, player_guid, player_message, bot_reply FROM mod_ollama_chat_history ORDER BY timestamp ASC"
+        "SELECT bot_guid, player_guid, player_message, bot_reply FROM mod_bot_chat_history ORDER BY timestamp ASC"
     );
     if (!result)
         return;

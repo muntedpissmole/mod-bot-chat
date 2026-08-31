@@ -271,7 +271,7 @@ extern BotChatRAGSystem* g_RAGSystem;                     // Global RAG system i
 // --------------------------------------------
 // Event Chatter: Event Type Strings
 // These control the event type string sent to eventChatter for world event prompts.
-// Values are loaded from conf (see mod_ollama_chat.conf.dist)
+// Values are loaded from conf (see mod_bot_chat.conf.dist)
 // --------------------------------------------
 extern std::string g_EventTypeDefeated;           // "defeated"
 extern std::string g_EventTypeDefeatedPlayer;     // "defeated player"

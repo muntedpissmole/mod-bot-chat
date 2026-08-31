@@ -1217,7 +1217,8 @@ namespace
             lower.find("need dps") != std::string::npos || lower.find("need a dps") != std::string::npos ||
             lower.find("lf tank") != std::string::npos || lower.find("any tank") != std::string::npos ||
             lower.find("any tanks") != std::string::npos || lower.find("need pala") != std::string::npos ||
-            lower.find("need paladin") != std::string::npos || lower.find("lf heal") != std::string::npos)
+            lower.find("need pally") != std::string::npos || lower.find("need paladin") != std::string::npos ||
+            lower.find("lf heal") != std::string::npos)
             return true;
         if (lower.find("anyone want") != std::string::npos || lower.find("anyone wanna") != std::string::npos ||
             lower.find("anyone for") != std::string::npos || lower.find("anyone up") != std::string::npos ||

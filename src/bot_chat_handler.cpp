@@ -286,7 +286,7 @@ void SaveBotConversationHistoryToDB()
                 CharacterDatabase.EscapeString(escBotReply);
 
                 CharacterDatabase.Execute(SafeFormat(
-                    "INSERT IGNORE INTO mod_ollama_chat_history (bot_guid, player_guid, timestamp, player_message, bot_reply) "
+                    "INSERT IGNORE INTO mod_bot_chat_history (bot_guid, player_guid, timestamp, player_message, bot_reply) "
                     "VALUES ({}, {}, NOW(), '{}', '{}')",
                     botGuid, playerGuid, escPlayerMsg, escBotReply));
             }
@@ -304,9 +304,9 @@ void SaveBotConversationHistoryToDB()
                     PARTITION BY bot_guid, player_guid
                     ORDER BY timestamp DESC
                 ) as rn
-            FROM mod_ollama_chat_history
+            FROM mod_bot_chat_history
         )
-        DELETE FROM mod_ollama_chat_history
+        DELETE FROM mod_bot_chat_history
         WHERE (bot_guid, player_guid, timestamp) IN (
             SELECT bot_guid, player_guid, timestamp
             FROM ranked_history
@@ -841,7 +841,8 @@ void SendBotChannelLine(Player* bot, std::string const& channelName, std::string
 }
 
 static void DeliverSocialReplies(std::vector<Player*> const& bots, Player* sender, std::string const& reply,
-                                 ChatChannelSourceLocal sourceLocal, Channel* channel, SocialAct act = SocialAct::None)
+                                 ChatChannelSourceLocal sourceLocal, Channel* channel, SocialAct act = SocialAct::None,
+                                 uint32 extraTypeChars = 0)
 {
     if (!sender)
         return;
@@ -879,10 +880,10 @@ static void DeliverSocialReplies(std::vector<Player*> const& bots, Player* sende
         }
         AppendChannelThread(threadKey, bot->GetName(), bot->GetGUID().GetRawValue(), true, line);
         uint64 botGuid = bot->GetGUID().GetRawValue();
-        std::thread([botGuid, senderGuid, line, sourceLocal, channelId, channelName]() {
+        std::thread([botGuid, senderGuid, line, sourceLocal, channelId, channelName, extraTypeChars]() {
             try
             {
-                BotChatTypingSleep(line.length());
+                BotChatTypingSleep(line.length() + extraTypeChars);
 
                 Player* botPtr = ObjectAccessor::FindPlayer(ObjectGuid(botGuid));
                 if (!botPtr)
@@ -947,6 +948,43 @@ void DeliverBotChatReply(std::vector<Player*> const& bots, Player* sender, std::
                          ChatChannelSourceLocal sourceLocal, Channel* channel)
 {
     DeliverSocialReplies(bots, sender, reply, sourceLocal, channel);
+}
+
+static Player* PickChimeBot(std::vector<Player*> const& pool, Player* primary, Player* sender)
+{
+    std::vector<Player*> candidates;
+    for (Player* bot : pool)
+    {
+        if (!bot || bot == primary || bot == sender)
+            continue;
+        candidates.push_back(bot);
+    }
+    if (candidates.empty())
+        return nullptr;
+    return candidates[urand(0, candidates.size() - 1)];
+}
+
+static void MaybeChimeIn(std::vector<Player*> const& pool, Player* primary, Player* sender,
+                         ChatChannelSourceLocal sourceLocal, Channel* channel,
+                         std::string const& threadKey, bool groupTopic, std::string const& lastBotLine)
+{
+    if (!primary || !sender)
+        return;
+    if (sourceLocal != SRC_GUILD_LOCAL && sourceLocal != SRC_GENERAL_LOCAL)
+        return;
+    uint32 const chance = (sourceLocal == SRC_GUILD_LOCAL) ? 55 : 35;
+    if (urand(0, 99) >= chance)
+        return;
+    Player* chime = PickChimeBot(pool, primary, sender);
+    if (!chime)
+        return;
+    std::string line = groupTopic ? PickGroupChime(chime, threadKey)
+                                  : PickContinueForLast(lastBotLine, threadKey);
+    if (line.empty())
+        line = PickSocialReply(SocialAct::Reaction, threadKey);
+    if (line.empty())
+        return;
+    DeliverSocialReplies({ chime }, sender, line, sourceLocal, channel, SocialAct::None, urand(8, 18));
 }
 
 void BotChatHandler::ProcessChat(Player* player, uint32_t /*type*/, uint32_t lang, std::string& msg, ChatChannelSourceLocal sourceLocal, Channel* channel, Player* receiver)
@@ -1515,6 +1553,27 @@ void BotChatHandler::ProcessChat(Player* player, uint32_t /*type*/, uint32_t lan
         }
         else
         {
+            if (!senderIsBot && sourceLocal == SRC_GENERAL_LOCAL)
+            {
+                ChatTone const tone = DetectChatTone(msg);
+                bool const keep =
+                    GetConversationBond(player->GetGUID().GetRawValue(), g_TopicIdleSeconds) != 0 ||
+                    chatIntent == ChatIntent::HelpRequest || chatIntent == ChatIntent::Question ||
+                    parsedQuery.topic == ChatTopic::LookingForGroup ||
+                    tone == ChatTone::Hostile ||
+                    IsShortFollowUp(msg) ||
+                    LooksLikeArgument(msg);
+                if (!keep && urand(0, 99) < 32)
+                {
+                    NotePlayerIgnored(threadKey, true);
+                    if (g_DebugEnabled)
+                        LOG_INFO("server.loading", "[Bot Chat] General ignores unsolicited line from {}",
+                                 player->GetName());
+                    return;
+                }
+                NotePlayerIgnored(threadKey, false);
+            }
+
             uint32_t effectiveChance = chance;
             if (!senderIsBot && (chatIntent == ChatIntent::HelpRequest || chatIntent == ChatIntent::Question))
                 effectiveChance = std::min<uint32_t>(100, chance + g_QuestionReplyChanceBonus);
@@ -1788,6 +1847,29 @@ void BotChatHandler::ProcessChat(Player* player, uint32_t /*type*/, uint32_t lan
         return;
     }
 
+    std::string const lastBotLine = GetLastBotText(threadKey);
+    bool const lastBotWasGroup = !lastBotLine.empty() &&
+        ParseChatQuery(lastBotLine).topic == ChatTopic::LookingForGroup;
+
+    if (!senderIsBot && lastBotWasGroup && !finalCandidates.empty() &&
+        (IsGroupAsk(msg) || IsGroupJoin(msg) || IsShortFollowUp(msg)))
+    {
+        Player* starter = finalCandidates.front();
+        std::string const lfgKey = MakeThreadKey(player, sourceLocal, channel, starter);
+        std::string line = IsGroupJoin(msg) ? PickGroupReply(lfgKey, false, starter)
+                                            : PickGroupPurpose(starter, lfgKey);
+        if (line.empty() && IsGroupAsk(msg))
+            line = PickGroupPurpose(starter, lfgKey);
+        if (!line.empty())
+        {
+            if (g_DebugEnabled)
+                LOG_INFO("server.loading", "[Bot Chat] Group follow-up -> {} : {}", starter->GetName(), line);
+            DeliverSocialReplies({ starter }, player, line, sourceLocal, channel);
+            MaybeChimeIn(candidateBots, starter, player, sourceLocal, channel, lfgKey, true, lastBotLine);
+        }
+        return;
+    }
+
     if (g_EnableSocialConventions && parsedQuery.topic == ChatTopic::LookingForGroup && !finalCandidates.empty())
     {
         // Bot-to-bot LFG is ambient continue, not a canned "gl"/"what for".
@@ -1801,23 +1883,37 @@ void BotChatHandler::ProcessChat(Player* player, uint32_t /*type*/, uint32_t lan
             if (g_DebugEnabled)
                 LOG_INFO("server.loading", "[Bot Chat] Group talk -> {} : {}", finalCandidates.front()->GetName(), line);
             DeliverSocialReplies({ finalCandidates.front() }, player, line, sourceLocal, channel);
+            MaybeChimeIn(candidateBots, finalCandidates.front(), player, sourceLocal, channel, lfgKey, true, lastBotLine);
         }
         return;
     }
 
-    // "ok" / "yeah" closes a beat. Talking over it with a new topic is what
-    // made guild chat jump to invented zones. Usually stay quiet; sometimes kk.
+    // "ok" / "yeah" on an empty or looping thread closes the beat. If they are
+    // answering a bot, stay on that topic.
     if (!senderIsBot && IsAck(msg))
     {
-        if (urand(0, 99) < 70 || finalCandidates.empty())
+        if (finalCandidates.empty())
             return;
-        std::string const ackKey = MakeThreadKey(player, sourceLocal, channel);
-        std::string line = PickSocialReply(SocialAct::Reaction, ackKey);
-        if (line.empty())
-            line = "kk";
+        bool const answeringBot = !lastBotLine.empty() && !ThreadLooksLooped(threadKey);
+        if (!answeringBot)
+        {
+            if (urand(0, 99) < 70)
+                return;
+            std::string const ackKey = MakeThreadKey(player, sourceLocal, channel);
+            std::string line = PickSocialReply(SocialAct::Reaction, ackKey);
+            if (line.empty())
+                line = "kk";
+            if (g_DebugEnabled)
+                LOG_INFO("server.loading", "[Bot Chat] Ack from {} -> {}", player->GetName(), line);
+            DeliverSocialReplies({ finalCandidates.front() }, player, line, sourceLocal, channel);
+            return;
+        }
         if (g_DebugEnabled)
-            LOG_INFO("server.loading", "[Bot Chat] Ack from {} -> {}", player->GetName(), line);
-        DeliverSocialReplies({ finalCandidates.front() }, player, line, sourceLocal, channel);
+            LOG_INFO("server.loading", "[Bot Chat] Ack on live bot topic from {}", player->GetName());
+        TryBotChatLlmReply(finalCandidates, player, msg, ChatTone::Neutral, sourceLocal, channel,
+                           PickSocialReply(SocialAct::Reaction, threadKey));
+        MaybeChimeIn(candidateBots, finalCandidates.front(), player, sourceLocal, channel,
+                     threadKey, lastBotWasGroup, lastBotLine);
         return;
     }
 
@@ -1883,8 +1979,9 @@ void BotChatHandler::ProcessChat(Player* player, uint32_t /*type*/, uint32_t lan
         fallback = PickFollowUpReply(threadKey);
 
     uint32 const playerLines = CountRecentPlayerLines(threadKey);
-    bool const looping = ThreadLooksLooped(threadKey) || playerLines >= 8 ||
-                         (playerLines >= 6 && urand(0, 99) < 50);
+    bool const oneToOne = sourceLocal == SRC_WHISPER_LOCAL || sourceLocal == SRC_SAY_LOCAL;
+    bool const looping = ThreadLooksLooped(threadKey) ||
+                         (!oneToOne && (playerLines >= 18 || (playerLines >= 12 && urand(0, 99) < 40)));
     if (looping && tone == ChatTone::Neutral)
     {
         std::string closer = PickCloserReply(threadKey);
@@ -1898,6 +1995,9 @@ void BotChatHandler::ProcessChat(Player* player, uint32_t /*type*/, uint32_t lan
     }
 
     TryBotChatLlmReply(finalCandidates, player, msg, tone, sourceLocal, channel, fallback);
+    if (tone == ChatTone::Neutral)
+        MaybeChimeIn(candidateBots, finalCandidates.front(), player, sourceLocal, channel,
+                     threadKey, lastBotWasGroup, lastBotLine);
 }
 
 #if 0

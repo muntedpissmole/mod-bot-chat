@@ -12,27 +12,124 @@
 #include "Guild.h"
 #include "Group.h"
 #include "Log.h"
+#include "Random.h"
 #include <mutex>
 #include <unordered_map>
 #include <deque>
+#include <vector>
 #include <algorithm>
 #include <ctime>
+#include <cstddef>
 #include <utility>
 
 namespace
 {
+    struct LiveTopic
+    {
+        uint32 id = 0;
+        uint32 trail = 0;
+        uint32 maxTrail = 0;
+        time_t lastAt = 0;
+    };
+
     struct ChannelThread
     {
         std::deque<ChannelThreadLine> lines;
         time_t lastActivity = 0;
         std::deque<uint64_t> recentSpeakers;
+        uint32 maxTrail = 0;
+        uint32 nextTopicId = 1;
+        std::vector<LiveTopic> topics;
+        std::deque<uint32> pendingTopics;
+        bool lastPlayerIgnored = false;
     };
+
+    constexpr size_t MAX_LIVE_TOPICS = 2;
+    constexpr int LIVE_TOPIC_IDLE = 120;
+
+    bool TopicIsLiveUnlocked(LiveTopic const& topic, time_t now)
+    {
+        if (!topic.id || !topic.maxTrail)
+            return false;
+        if (difftime(now, topic.lastAt) > LIVE_TOPIC_IDLE)
+            return false;
+        return topic.trail < topic.maxTrail;
+    }
+
+    LiveTopic* FindTopicUnlocked(ChannelThread& thread, uint32 id)
+    {
+        if (!id)
+            return nullptr;
+        for (LiveTopic& topic : thread.topics)
+        {
+            if (topic.id == id)
+                return &topic;
+        }
+        return nullptr;
+    }
+
+    LiveTopic const* FindTopicUnlocked(ChannelThread const& thread, uint32 id)
+    {
+        if (!id)
+            return nullptr;
+        for (LiveTopic const& topic : thread.topics)
+        {
+            if (topic.id == id)
+                return &topic;
+        }
+        return nullptr;
+    }
+
+    uint32 RollThreadMaxTrail(bool engaged, bool inGuild)
+    {
+        uint32 const r = urand(0, 99);
+        if (engaged)
+        {
+            if (inGuild)
+            {
+                if (r < 15)
+                    return urand(3, 5);
+                if (r < 50)
+                    return urand(6, 10);
+                if (r < 85)
+                    return urand(12, 18);
+                return urand(20, 24);
+            }
+            if (r < 20)
+                return urand(2, 3);
+            if (r < 55)
+                return urand(4, 8);
+            if (r < 88)
+                return urand(10, 16);
+            return urand(18, 24);
+        }
+        // Guild hangout: a few beats then the room moves on, not a 90s hole.
+        if (inGuild)
+        {
+            if (r < 20)
+                return 2;
+            if (r < 70)
+                return urand(3, 5);
+            return urand(4, 7);
+        }
+        // Bot-only General. Most topics die fast. A few arguments run minutes.
+        if (r < 38)
+            return 1;
+        if (r < 68)
+            return 2;
+        if (r < 86)
+            return urand(3, 5);
+        if (r < 97)
+            return urand(8, 14);
+        return urand(16, 22);
+    }
 
     std::mutex g_ThreadMutex;
     std::unordered_map<std::string, ChannelThread> g_Threads;
 
     std::mutex g_SpokenMutex;
     std::deque<std::pair<std::string, time_t>> g_RecentSpoken;
+    std::deque<std::pair<std::string, time_t>> g_Punchlines;
 
     std::mutex g_BondMutex;
     std::unordered_map<uint64_t, std::pair<uint64_t, time_t>> g_PlayerBonds;
@@ -88,6 +185,31 @@ namespace
     constexpr size_t MAX_RECENT_SPEAKERS = 8;
     constexpr size_t MAX_SPOKEN_LINES = 512;
     constexpr int SPOKEN_TTL_SECONDS = 3 * 60 * 60;
+    constexpr size_t MAX_PUNCHLINES = 256;
+    constexpr int PUNCHLINE_TTL_SECONDS = 2 * 24 * 60 * 60;
+
+    unsigned SignatureParts(std::string const& sig)
+    {
+        if (sig.empty())
+            return 0;
+        unsigned parts = 1;
+        for (char c : sig)
+        {
+            if (c == ' ')
+                ++parts;
+        }
+        return parts;
+    }
+
+    int PunchlineTtl(std::string const& sig)
+    {
+        if (sig.empty() || sig[0] != '#')
+            return 0;
+        // Catchy two-token frames only: "died to X lmao" → "# lmao"
+        if (SignatureParts(sig) == 2)
+            return PUNCHLINE_TTL_SECONDS;
+        return 0;
+    }
 
     ChannelThread& GetOrCreateThreadUnlocked(const std::string& key)
     {
@@ -242,6 +364,30 @@ void AppendChannelThread(const std::string& key, const std::string& speaker, uin
         line.isBot = isBot;
         line.text = text;
         line.timestamp = time(nullptr);
+        uint32 topicId = 0;
+        if (isBot && !thread.pendingTopics.empty())
+        {
+            topicId = thread.pendingTopics.front();
+            thread.pendingTopics.pop_front();
+        }
+        if (!topicId && !thread.topics.empty())
+        {
+            LiveTopic* recent = nullptr;
+            for (LiveTopic& topic : thread.topics)
+            {
+                if (!recent || topic.lastAt > recent->lastAt)
+                    recent = &topic;
+            }
+            if (recent && difftime(line.timestamp, recent->lastAt) < (isBot ? 12.0 : 30.0))
+                topicId = recent->id;
+        }
+        line.topicId = topicId;
+        if (LiveTopic* topic = FindTopicUnlocked(thread, topicId))
+        {
+            topic->lastAt = line.timestamp;
+            if (isBot)
+                ++topic->trail;
+        }
         thread.lines.push_back(line);
         thread.lastActivity = line.timestamp;
 
@@ -337,6 +483,24 @@ uint64_t GetLastBotSpeaker(const std::string& key)
             return line->speakerGuid;
     }
     return 0;
+}
+
+std::string GetLastBotText(const std::string& key)
+{
+    if (!g_EnableChannelThreads || key.empty())
+        return {};
+
+    std::lock_guard<std::mutex> lock(g_ThreadMutex);
+    auto it = g_Threads.find(key);
+    if (it == g_Threads.end())
+        return {};
+
+    for (auto line = it->second.lines.rbegin(); line != it->second.lines.rend(); ++line)
+    {
+        if (line->isBot && !line->text.empty())
+            return line->text;
+    }
+    return {};
 }
 
 bool IsRecentSpeaker(const std::string& key, uint64_t speakerGuid)
@@ -658,6 +822,17 @@ void NoteSpokenLine(const std::string& text)
     while (!g_RecentSpoken.empty() &&
            difftime(now, g_RecentSpoken.front().second) > SPOKEN_TTL_SECONDS)
         g_RecentSpoken.pop_front();
+
+    std::string const sig = ChatLineSignature(norm);
+    if (PunchlineTtl(sig) > 0)
+    {
+        g_Punchlines.push_back({sig, now});
+        while (g_Punchlines.size() > MAX_PUNCHLINES)
+            g_Punchlines.pop_front();
+        while (!g_Punchlines.empty() &&
+               difftime(now, g_Punchlines.front().second) > PUNCHLINE_TTL_SECONDS)
+            g_Punchlines.pop_front();
+    }
 }
 
 bool LineRecentlySpoken(const std::string& text)
@@ -671,6 +846,9 @@ bool LineRecentlySpoken(const std::string& text)
     while (!g_RecentSpoken.empty() &&
            difftime(now, g_RecentSpoken.front().second) > SPOKEN_TTL_SECONDS)
         g_RecentSpoken.pop_front();
+    while (!g_Punchlines.empty() &&
+           difftime(now, g_Punchlines.front().second) > PUNCHLINE_TTL_SECONDS)
+        g_Punchlines.pop_front();
 
     for (auto const& spoken : g_RecentSpoken)
     {
@@ -680,6 +858,17 @@ bool LineRecentlySpoken(const std::string& text)
             return true;
         if (ChatLineShapesMatch(spoken.first, norm))
             return true;
+    }
+
+    std::string const sig = ChatLineSignature(norm);
+    int const punchTtl = PunchlineTtl(sig);
+    if (punchTtl > 0)
+    {
+        for (auto const& punch : g_Punchlines)
+        {
+            if (punch.first == sig && difftime(now, punch.second) <= punchTtl)
+                return true;
+        }
     }
     return false;
 }
@@ -715,6 +904,238 @@ uint32 CountTrailingBotLines(const std::string& key)
         ++count;
     }
     return count;
+}
+
+uint32 GetThreadMaxTrail(std::string const& key)
+{
+    if (key.empty())
+        return 0;
+    std::lock_guard<std::mutex> lock(g_ThreadMutex);
+    auto it = g_Threads.find(key);
+    if (it == g_Threads.end())
+        return 0;
+    return it->second.maxTrail;
+}
+
+uint32 EnsureThreadMaxTrail(std::string const& key, bool engaged, bool inGuild)
+{
+    if (key.empty())
+        return RollThreadMaxTrail(engaged, inGuild);
+
+    std::lock_guard<std::mutex> lock(g_ThreadMutex);
+    ChannelThread& thread = GetOrCreateThreadUnlocked(key);
+    if (thread.maxTrail == 0)
+        thread.maxTrail = RollThreadMaxTrail(engaged, inGuild);
+    else if (engaged && thread.maxTrail < 6)
+    {
+        uint32 const longer = RollThreadMaxTrail(true, inGuild);
+        if (longer > thread.maxTrail)
+            thread.maxTrail = longer;
+    }
+    return thread.maxTrail;
+}
+
+void ResetThreadMaxTrail(std::string const& key)
+{
+    if (key.empty())
+        return;
+    std::lock_guard<std::mutex> lock(g_ThreadMutex);
+    auto it = g_Threads.find(key);
+    if (it == g_Threads.end())
+        return;
+    it->second.maxTrail = 0;
+}
+
+uint32 BeginNewTopic(std::string const& key, bool inGuild)
+{
+    if (key.empty())
+        return 0;
+    std::lock_guard<std::mutex> lock(g_ThreadMutex);
+    ChannelThread& thread = GetOrCreateThreadUnlocked(key);
+    time_t const now = time(nullptr);
+    while (thread.topics.size() >= MAX_LIVE_TOPICS)
+    {
+        size_t drop = 0;
+        for (size_t i = 1; i < thread.topics.size(); ++i)
+        {
+            if (TopicIsLiveUnlocked(thread.topics[i], now) &&
+                !TopicIsLiveUnlocked(thread.topics[drop], now))
+                continue;
+            if (!TopicIsLiveUnlocked(thread.topics[i], now) &&
+                TopicIsLiveUnlocked(thread.topics[drop], now))
+            {
+                drop = i;
+                continue;
+            }
+            if (thread.topics[i].lastAt < thread.topics[drop].lastAt)
+                drop = i;
+        }
+        thread.topics.erase(thread.topics.begin() + static_cast<std::ptrdiff_t>(drop));
+    }
+    LiveTopic topic;
+    topic.id = thread.nextTopicId++;
+    if (!topic.id)
+        topic.id = thread.nextTopicId++;
+    topic.trail = 0;
+    topic.maxTrail = RollThreadMaxTrail(false, inGuild);
+    if (!topic.maxTrail)
+        topic.maxTrail = 1;
+    topic.lastAt = now;
+    thread.topics.push_back(topic);
+    thread.maxTrail = topic.maxTrail;
+    thread.pendingTopics.push_back(topic.id);
+    return topic.id;
+}
+
+void PushPendingTopic(std::string const& key, uint32 topicId)
+{
+    if (key.empty() || !topicId)
+        return;
+    std::lock_guard<std::mutex> lock(g_ThreadMutex);
+    GetOrCreateThreadUnlocked(key).pendingTopics.push_back(topicId);
+}
+
+uint32 CountLiveTopics(std::string const& key)
+{
+    if (key.empty())
+        return 0;
+    std::lock_guard<std::mutex> lock(g_ThreadMutex);
+    auto it = g_Threads.find(key);
+    if (it == g_Threads.end())
+        return 0;
+    time_t const now = time(nullptr);
+    uint32 n = 0;
+    for (LiveTopic const& topic : it->second.topics)
+    {
+        if (TopicIsLiveUnlocked(topic, now))
+            ++n;
+    }
+    return n;
+}
+
+uint32 GetTopicTrail(std::string const& key, uint32 topicId)
+{
+    if (key.empty() || !topicId)
+        return 0;
+    std::lock_guard<std::mutex> lock(g_ThreadMutex);
+    auto it = g_Threads.find(key);
+    if (it == g_Threads.end())
+        return 0;
+    if (LiveTopic const* topic = FindTopicUnlocked(it->second, topicId))
+        return topic->trail;
+    return 0;
+}
+
+uint32 GetTopicMaxTrail(std::string const& key, uint32 topicId)
+{
+    if (key.empty() || !topicId)
+        return 0;
+    std::lock_guard<std::mutex> lock(g_ThreadMutex);
+    auto it = g_Threads.find(key);
+    if (it == g_Threads.end())
+        return 0;
+    if (LiveTopic const* topic = FindTopicUnlocked(it->second, topicId))
+        return topic->maxTrail;
+    return 0;
+}
+
+uint32 EnsureTopicMaxTrail(std::string const& key, uint32 topicId, bool engaged, bool inGuild)
+{
+    if (!topicId)
+        return EnsureThreadMaxTrail(key, engaged, inGuild);
+    std::lock_guard<std::mutex> lock(g_ThreadMutex);
+    ChannelThread& thread = GetOrCreateThreadUnlocked(key);
+    LiveTopic* topic = FindTopicUnlocked(thread, topicId);
+    if (!topic)
+        return 0;
+    if (!topic->maxTrail)
+        topic->maxTrail = RollThreadMaxTrail(engaged, inGuild);
+    else if (engaged && topic->maxTrail < 6)
+    {
+        uint32 const longer = RollThreadMaxTrail(true, inGuild);
+        if (longer > topic->maxTrail)
+            topic->maxTrail = longer;
+    }
+    return topic->maxTrail;
+}
+
+void NotePlayerIgnored(std::string const& key, bool ignored)
+{
+    if (key.empty())
+        return;
+    std::lock_guard<std::mutex> lock(g_ThreadMutex);
+    GetOrCreateThreadUnlocked(key).lastPlayerIgnored = ignored;
+}
+
+ChannelThreadLine PickThreadReplyTarget(std::string const& key)
+{
+    ChannelThreadLine last = GetLastThreadLine(key);
+    if (key.empty())
+        return last;
+
+    std::vector<uint32> liveIds;
+    {
+        std::lock_guard<std::mutex> lock(g_ThreadMutex);
+        auto it = g_Threads.find(key);
+        if (it != g_Threads.end())
+        {
+            time_t const now = time(nullptr);
+            for (LiveTopic const& topic : it->second.topics)
+            {
+                if (TopicIsLiveUnlocked(topic, now))
+                    liveIds.push_back(topic.id);
+            }
+        }
+    }
+
+    uint32 wantId = 0;
+    uint32 playerTopic = 0;
+    {
+        std::vector<ChannelThreadLine> recent = CopyRecentThreadLines(key, 12, 180);
+        for (auto line = recent.rbegin(); line != recent.rend(); ++line)
+        {
+            if (!line->isBot && line->topicId)
+            {
+                playerTopic = line->topicId;
+                break;
+            }
+        }
+    }
+    if (playerTopic)
+    {
+        for (uint32 id : liveIds)
+        {
+            if (id == playerTopic)
+            {
+                if (liveIds.size() == 1 || urand(0, 99) < 75)
+                    wantId = playerTopic;
+                break;
+            }
+        }
+    }
+    if (!wantId && liveIds.size() >= 2)
+        wantId = liveIds[urand(0, liveIds.size() - 1)];
+    else if (!wantId && liveIds.size() == 1)
+        wantId = liveIds[0];
+
+    if (!wantId)
+        return last;
+
+    std::vector<ChannelThreadLine> lines = CopyRecentThreadLines(key, 12, 120);
+    ChannelThreadLine picked = last;
+    bool found = false;
+    for (auto line = lines.rbegin(); line != lines.rend(); ++line)
+    {
+        if (line->topicId == wantId && !line->text.empty())
+        {
+            picked = *line;
+            found = true;
+            break;
+        }
+    }
+    if (!found)
+        return last;
+    return picked;
 }
 
 bool LastThreadSpeakerIsPlayer(const std::string& key)
@@ -792,7 +1213,7 @@ bool PlayerSpokeRecently(const std::string& key, uint32_t withinSeconds)
         if (difftime(now, line->timestamp) > withinSeconds)
             break;
         if (!line->isBot)
-            return true;
+            return !it->second.lastPlayerIgnored;
     }
     return false;
 }
@@ -806,6 +1227,7 @@ void ClearChannelThreads()
     {
         std::lock_guard<std::mutex> spokenLock(g_SpokenMutex);
         g_RecentSpoken.clear();
+        g_Punchlines.clear();
     }
     std::lock_guard<std::mutex> bondLock(g_BondMutex);
     g_PlayerBonds.clear();

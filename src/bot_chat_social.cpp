@@ -2,6 +2,7 @@
 #include "bot_chat_config.h"
 #include "bot_chat_thread.h"
 #include "bot_chat_util.h"
+#include "bot_chat_dribble_pool.h"
 #include "Player.h"
 #include "PlayerbotAIConfig.h"
 #include "PlayerbotMgr.h"
@@ -10,7 +11,10 @@
 #include "RandomPlayerbotMgr.h"
 #include "Map.h"
 #include "DBCStores.h"
+#include "DBCEnums.h"
 #include "Log.h"
+#include "ObjectMgr.h"
+#include "QuestDef.h"
 #include "SharedDefines.h"
 
 #include <algorithm>
@@ -22,6 +26,7 @@
 #include <initializer_list>
 #include <mutex>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace
@@ -110,6 +115,28 @@ namespace
                 return "";
             fresh = all;
         }
+        std::string const picked = fresh[urand(0, fresh.size() - 1)];
+        NoteSpokenLine(picked);
+        return picked;
+    }
+
+    std::string PickFromArray(char const* const* replies, size_t count, std::string const& threadKey)
+    {
+        if (!count)
+            return "";
+        std::vector<char const*> fresh;
+        for (size_t i = 0; i < count; ++i)
+        {
+            if (!replies[i] || !replies[i][0])
+                continue;
+            if (!threadKey.empty() && LineTooSimilarToRecent(threadKey, replies[i]))
+                continue;
+            if (LineRecentlySpoken(replies[i]))
+                continue;
+            fresh.push_back(replies[i]);
+        }
+        if (fresh.empty())
+            return "";
         std::string const picked = fresh[urand(0, fresh.size() - 1)];
         NoteSpokenLine(picked);
         return picked;
@@ -219,6 +246,67 @@ namespace
         if (has("wintergrasp")) return "wg";
         if (has("blade")) return "blades";
         return "";
+    }
+
+    void AddSingularTakes(std::vector<std::string>& lines, std::string const& s)
+    {
+        if (s.empty())
+            return;
+        lines.push_back(s + " is aids");
+        lines.push_back("this " + s + " is aids");
+        lines.push_back(s + " is a joke");
+        lines.push_back(s + " can eat me");
+        lines.push_back("who designed " + s);
+        lines.push_back("skip " + s + " if you can");
+        lines.push_back(s + " quest is aids");
+        lines.push_back("why does " + s + " exist");
+        lines.push_back(s + " is so bad");
+        lines.push_back("hate " + s);
+        lines.push_back(s + " can die");
+        lines.push_back("blizz and " + s);
+        lines.push_back("anyone still on " + s);
+        lines.push_back("is " + s + " bugged");
+        lines.push_back(s + " drop rate is trash");
+        lines.push_back("how many for " + s + " still");
+        lines.push_back(s + " respawn is a joke");
+        lines.push_back("waiting on " + s + " spawn");
+        lines.push_back("group for " + s + "?");
+        lines.push_back(s + " is why i drink");
+        lines.push_back("did they even test " + s);
+        lines.push_back(s + " escort can die");
+        lines.push_back("lost the " + s + " npc again");
+    }
+
+    void AddMobTakes(std::vector<std::string>& lines, std::string const& mob)
+    {
+        if (mob.empty() || mob == "here")
+            return;
+        lines.push_back("these " + mob + " are aids");
+        lines.push_back(mob + " hit like trucks");
+        lines.push_back("tagging " + mob + " sucks");
+        lines.push_back("anyone else on these " + mob);
+        lines.push_back("anyone for " + mob + " quest");
+        lines.push_back(mob + " one shot me");
+        lines.push_back("how does " + mob + " hit that hard");
+        lines.push_back(mob + " have too much hp");
+        lines.push_back("these " + mob + " pack too hard");
+        lines.push_back(mob + " drop junk");
+        lines.push_back("who pulls " + mob + " like that");
+        lines.push_back(mob + " are a joke");
+        lines.push_back("im so sick of " + mob);
+        lines.push_back(mob + " pull the whole camp");
+        lines.push_back("these " + mob + " never die");
+        lines.push_back("fighting over " + mob + " spawns");
+        lines.push_back(mob + " respawn is instant nvm");
+        lines.push_back("train of " + mob + " coming");
+        lines.push_back("stop ninjaing " + mob);
+        lines.push_back(mob + " drop 1 copper lmao");
+        lines.push_back("gray " + mob + " forever");
+        lines.push_back("pet died to " + mob);
+        lines.push_back(mob + " leash is broken");
+        lines.push_back("these " + mob + " call the whole ridge");
+        lines.push_back("need 8 " + mob + " meat still");
+        lines.push_back(mob + " steal my tags");
     }
 
     std::string PickSlotted(std::initializer_list<std::string> lines, std::string const& threadKey)
@@ -659,9 +747,247 @@ std::string PickContinueLine(std::string const& threadKey)
     }, threadKey, false, true);
 }
 
-std::string PickContinueForLast(std::string const& last, std::string const& threadKey)
+namespace
+{
+    std::string MessyChat(std::string line)
+    {
+        if (line.size() < 6 || urand(0, 99) >= 8)
+            return line;
+        std::string const orig = line;
+        uint32 const kind = urand(0, 99);
+        if (kind < 40)
+        {
+            size_t const pos = line.find("the ");
+            if (pos != std::string::npos && (pos == 0 || line[pos - 1] == ' '))
+                line.replace(pos, 4, "teh ");
+        }
+        else if (kind < 70 && line.size() > 10)
+        {
+            size_t const i = urand(1, line.size() - 2);
+            if (line[i] == ' ')
+                line.erase(i, 1);
+        }
+        else if (kind < 90)
+        {
+            size_t const i = urand(0, line.size() - 1);
+            if (std::isalpha(static_cast<unsigned char>(line[i])))
+                line.insert(i, 1, line[i]);
+        }
+        else if (std::islower(static_cast<unsigned char>(line.front())))
+            line.front() = static_cast<char>(std::toupper(static_cast<unsigned char>(line.front())));
+        if (UsesSlur(line))
+            return orig;
+        return line;
+    }
+
+    bool DribbleFitsRoom(std::string const& line, bool capital)
+    {
+        std::string const lower = ToLowerCopy(line);
+        bool city = lower.find("icc") != std::string::npos || lower.find("toc") != std::string::npos ||
+                    lower.find("naxx") != std::string::npos || lower.find("ulduar") != std::string::npos ||
+                    lower.find("dalaran") != std::string::npos || lower.find(" dal") != std::string::npos ||
+                    lower.find("saurfang") != std::string::npos || lower.find("patchwerk") != std::string::npos ||
+                    lower.find("oculus") != std::string::npos || lower.find("rdf") != std::string::npos ||
+                    lower.find("lfd") != std::string::npos || lower.find("badge") != std::string::npos ||
+                    lower.find("arena") != std::string::npos || lower.find("flask") != std::string::npos ||
+                    lower.find("lockout") != std::string::npos || lower.find("gold seller") != std::string::npos ||
+                    lower.find("flashing wings") != std::string::npos ||
+                    lower.find("blocking the portal") != std::string::npos;
+        bool zone = lower.find("grind") != std::string::npos || lower.find("spawn") != std::string::npos ||
+                    lower.find("tagging") != std::string::npos || lower.find("gank") != std::string::npos ||
+                    lower.find("escort") != std::string::npos || lower.find("herb") != std::string::npos ||
+                    lower.find("nodes") != std::string::npos || lower.find("quest log") != std::string::npos ||
+                    lower.find("walking") != std::string::npos || lower.find("elites in") != std::string::npos ||
+                    lower.find("fp in") != std::string::npos;
+        if (capital && zone && !city)
+            return urand(0, 99) < 22;
+        if (!capital && city && !zone)
+            return urand(0, 99) < 18;
+        return true;
+    }
+
+    std::string AddressBounce(std::string line, std::string speaker, bool speakerIsBot)
+    {
+        if (line.empty() || !speakerIsBot || speaker.empty() || urand(0, 99) >= 22)
+            return line;
+        if (HasWord(ToLowerCopy(line), "reported") || HasWord(ToLowerCopy(line), "report"))
+            return line;
+        size_t const cut = speaker.find('-');
+        if (cut != std::string::npos)
+            speaker.resize(cut);
+        if (speaker.size() < 2 || speaker.size() > 12)
+            return line;
+        return line + " " + speaker;
+    }
+
+    std::string PickClaimBounce(std::string const& lower, std::string const& threadKey)
+    {
+        auto pick = [&](char const* const* arr, size_t n) -> std::string
+        {
+            return PickFromArray(arr, n, threadKey);
+        };
+        if (lower.find("tbc") != std::string::npos || lower.find("vanilla") != std::string::npos ||
+            lower.find("wrath") != std::string::npos || lower.find("lfd") != std::string::npos ||
+            lower.find("xpac") != std::string::npos || lower.find("dumbed") != std::string::npos)
+            return pick(kClaimExpansion, sizeof(kClaimExpansion) / sizeof(kClaimExpansion[0]));
+        if (lower.find("dk") != std::string::npos || lower.find("death grip") != std::string::npos ||
+            lower.find("unholy") != std::string::npos)
+            return pick(kClaimDk, sizeof(kClaimDk) / sizeof(kClaimDk[0]));
+        if (lower.find("pally") != std::string::npos || lower.find("paladin") != std::string::npos ||
+            lower.find("pala") != std::string::npos)
+            return pick(kClaimPally, sizeof(kClaimPally) / sizeof(kClaimPally[0]));
+        if (lower.find("hunter") != std::string::npos)
+            return pick(kClaimHunter, sizeof(kClaimHunter) / sizeof(kClaimHunter[0]));
+        if (lower.find("icc") != std::string::npos || lower.find("toc") != std::string::npos ||
+            lower.find("naxx") != std::string::npos || lower.find("ulduar") != std::string::npos ||
+            lower.find("saurfang") != std::string::npos || lower.find("patchwerk") != std::string::npos)
+            return pick(kClaimRaid, sizeof(kClaimRaid) / sizeof(kClaimRaid[0]));
+        if (lower.find("horde") != std::string::npos || lower.find("alliance") != std::string::npos ||
+            lower.find("queue") != std::string::npos)
+            return pick(kClaimFaction, sizeof(kClaimFaction) / sizeof(kClaimFaction[0]));
+        if (lower.find("flying") != std::string::npos || lower.find("northrend") != std::string::npos)
+            return pick(kClaimFlying, sizeof(kClaimFlying) / sizeof(kClaimFlying[0]));
+        if (lower.find("gold") != std::string::npos || lower.find("inflat") != std::string::npos ||
+            lower.find(" ah") != std::string::npos)
+            return pick(kClaimGold, sizeof(kClaimGold) / sizeof(kClaimGold[0]));
+        return pick(kClaimGeneric, sizeof(kClaimGeneric) / sizeof(kClaimGeneric[0]));
+    }
+
+    bool AreaLooksCapital(Player* bot)
+    {
+        if (!bot)
+            return false;
+        uint32 zoneId = BotLiveZoneId(bot);
+        AreaTableEntry const* area = sAreaTableStore.LookupEntry(zoneId);
+        if (!area)
+            return false;
+        if (area->flags & AREA_FLAG_CAPITAL)
+            return true;
+        if (area->zone)
+        {
+            if (AreaTableEntry const* parent = sAreaTableStore.LookupEntry(area->zone))
+                return (parent->flags & AREA_FLAG_CAPITAL) != 0;
+        }
+        return false;
+    }
+}
+
+bool LooksLikeArgument(std::string const& message)
+{
+    if (message.empty())
+        return false;
+    std::string const lower = ToLowerCopy(message);
+    if (lower.find("fight me") != std::string::npos ||
+        lower.find("change my mind") != std::string::npos ||
+        lower.find("die on this hill") != std::string::npos ||
+        lower.find("i stand by") != std::string::npos ||
+        lower.find("and you know it") != std::string::npos ||
+        lower.find("shouldnt exist") != std::string::npos ||
+        lower.find("was better") != std::string::npos ||
+        lower.find("ruined the") != std::string::npos ||
+        lower.find("ruined you") != std::string::npos ||
+        lower.find("be honest") != std::string::npos)
+        return true;
+    return false;
+}
+
+BotChatMouth MouthForBot(Player* bot)
+{
+    if (!bot)
+        return BotChatMouth::Mix;
+    uint32 const n = static_cast<uint32>(bot->GetGUID().GetRawValue() % 100);
+    if (n < 16)
+        return BotChatMouth::Quiet;
+    if (n < 36)
+        return BotChatMouth::Lfg;
+    if (n < 62)
+        return BotChatMouth::Salt;
+    if (n < 80)
+        return BotChatMouth::Chatty;
+    return BotChatMouth::Mix;
+}
+
+std::string PickDribbleContinue(std::string const& last, std::string const& threadKey,
+                               std::string const& speaker, bool speakerIsBot, uint32 topicId)
+{
+    uint32 trail = topicId ? GetTopicTrail(threadKey, topicId) : CountTrailingBotLines(threadKey);
+    std::string const lower = ToLowerCopy(last);
+    uint32 maxTrail = topicId ? GetTopicMaxTrail(threadKey, topicId) : GetThreadMaxTrail(threadKey);
+    if (!maxTrail)
+        maxTrail = 4;
+
+    std::string named = speaker;
+    bool namedBot = speakerIsBot;
+    if (named.empty())
+    {
+        ChannelThreadLine const line = GetLastThreadLine(threadKey);
+        named = line.speaker;
+        namedBot = line.isBot;
+    }
+
+    auto finish = [&](std::string line) -> std::string
+    {
+        if (line.empty())
+            return "";
+        line = AddressBounce(line, named, namedBot);
+        line = MessyChat(line);
+        if (line.empty())
+            return "";
+        return line;
+    };
+
+    if (HasWord(lower, "reported") || HasWord(lower, "report"))
+    {
+        if (urand(0, 99) < 70)
+            return "";
+        return finish(PickFrom({
+            "already reported", "for what lmao", "+1", "mute and move on",
+            "right click", "have fun with the gm"
+        }, threadKey, false, true));
+    }
+
+    bool const ending = trail + 1 >= maxTrail;
+    if (ending || (trail >= 2 && urand(0, 99) < 12))
+        return finish(PickFrom({
+            "reported", "report that", "language", "gm pls", "take it to the forums",
+            "who asked", "stfu", "stay mad", "found the pally", "ok and",
+            "found the qq", "mute and move on", "wrong channel"
+        }, threadKey, false, true));
+
+    bool const clustered =
+        lower.find("tbc") != std::string::npos || lower.find("vanilla") != std::string::npos ||
+        lower.find("wrath") != std::string::npos || lower.find("lfd") != std::string::npos ||
+        lower.find("dk") != std::string::npos || lower.find("pally") != std::string::npos ||
+        lower.find("hunter") != std::string::npos || lower.find("icc") != std::string::npos ||
+        lower.find("toc") != std::string::npos || lower.find("naxx") != std::string::npos ||
+        lower.find("horde") != std::string::npos || lower.find("alliance") != std::string::npos ||
+        lower.find("flying") != std::string::npos || lower.find("gold") != std::string::npos;
+    if (LooksLikeArgument(last) || clustered)
+    {
+        std::string claim = PickClaimBounce(lower, threadKey);
+        if (!claim.empty())
+            return finish(claim);
+    }
+
+    if (lower.find("aids") != std::string::npos)
+        return finish(PickFrom({
+            "so aids", "the aids quest", "10/10 aids", "wait till the next one",
+            "blizz pls", "who designed this", "do it naked", "skip it",
+            "my bags are aids too", "this", "aids+", "peak aids",
+            "they made it worse", "its a classic", "tell me about it"
+        }, threadKey, false, true));
+
+    return finish(PickFromArray(kDribbleBounces,
+                                sizeof(kDribbleBounces) / sizeof(kDribbleBounces[0]), threadKey));
+}
+
+std::string PickContinueForLast(std::string const& last, std::string const& threadKey,
+                               std::string const& speaker, bool speakerIsBot, uint32 topicId)
 {
     std::string const lower = ToLowerCopy(last);
+    if (LooksLikeDribble(last) || IsHostileTalk(last) || LooksLikeArgument(last) ||
+        lower.find("aids") != std::string::npos)
+        return PickDribbleContinue(last, threadKey, speaker, speakerIsBot, topicId);
     if (HasAnyWord(lower, { "lfg", "lfm", "lf1m", "lf2m", "lf3m" }) ||
         lower.find("need 1") != std::string::npos ||
         lower.find("anyone for") != std::string::npos ||
@@ -821,6 +1147,181 @@ std::string PickAmbientWorldLine(std::string const& threadKey)
     }, threadKey, false, true);
 }
 
+bool LooksLikeDribble(std::string const& message)
+{
+    if (message.empty())
+        return false;
+    if (IsHostileTalk(message) || LooksLikeArgument(message))
+        return true;
+    std::string const lower = ToLowerCopy(message);
+    static std::unordered_set<std::string> const pool = []()
+    {
+        std::unordered_set<std::string> lines;
+        for (char const* line : kDribbleOpeners)
+            if (line && line[0])
+                lines.insert(ToLowerCopy(line));
+        for (char const* line : kDribbleBounces)
+            if (line && line[0])
+                lines.insert(ToLowerCopy(line));
+        return lines;
+    }();
+    if (pool.count(lower))
+        return true;
+    if (HasAnyWord(lower, {
+            "blizz", "blizzard", "faceroll", "cookie", "carebear", "qq",
+            "ninja", "pug", "pugs", "nerf", "buff", "gkick",
+            "goldsellers", "dumpster", "overpowered", "broken", "patch",
+            "aids", "reported", "report", "uninstall", "leeroy", "l2p",
+            "noob", "nub", "pwn", "owned", "reroll", "goldshire", "mankrik"
+        }))
+        return true;
+    if (lower.find("easy mode") != std::string::npos ||
+        lower.find("dumbed") != std::string::npos ||
+        lower.find("this spec") != std::string::npos ||
+        lower.find("this class") != std::string::npos ||
+        lower.find("this game") != std::string::npos ||
+        lower.find("gold seller") != std::string::npos ||
+        lower.find("this quest") != std::string::npos ||
+        lower.find("who asked") != std::string::npos ||
+        lower.find("your mom") != std::string::npos ||
+        lower.find("fight me") != std::string::npos ||
+        lower.find("thats what she said") != std::string::npos)
+        return true;
+    return false;
+}
+
+std::string PickAmbientDribbleLine(std::string const& threadKey, std::string const& className,
+                                  std::string const& questTitle, std::string const& zone,
+                                  Player* bot, std::string const& nearbyMob)
+{
+    std::string const hint = ShortQuestHint(questTitle);
+    std::string const nick = ChatZoneNick(zone);
+    std::string const mob = nearbyMob.empty() ? "" : FirstPlaceWord(nearbyMob);
+    std::string dungeon;
+    if (bot && bot->GetMap() && bot->GetMap()->IsDungeon())
+        dungeon = FirstPlaceWord(bot->GetMap()->GetMapName());
+
+    std::vector<std::string> lines;
+    // Take, don't status. "died to pterrordax lmao" invites a pile-on.
+    // "ghosted in ungoro" is just a GPS ping.
+    if (!hint.empty())
+        AddSingularTakes(lines, hint);
+    if (!nick.empty())
+    {
+        lines.push_back(nick + " quests are aids");
+        lines.push_back(nick + " grind is aids");
+        lines.push_back("elites in " + nick + " are aids");
+        lines.push_back("nubs in " + nick);
+        lines.push_back(nick + " xp is trash");
+        lines.push_back("who quests in " + nick + " for fun");
+        lines.push_back("who put the fp in " + nick);
+        lines.push_back(nick + " is a joke");
+        lines.push_back("why is " + nick + " like this");
+    }
+    AddMobTakes(lines, mob);
+    if (!mob.empty() && mob != "here" && bot && bot->isDead())
+    {
+        lines.push_back("died to " + mob + " lmao");
+        lines.push_back(mob + " ate me");
+        lines.push_back("how did " + mob + " kill me");
+    }
+    if (!dungeon.empty() && dungeon != "here")
+    {
+        lines.push_back(dungeon + " trash is aids");
+        lines.push_back("wipe on " + dungeon + " again");
+        lines.push_back("this " + dungeon + " pug is a joke");
+        lines.push_back(dungeon + " tanks are asleep");
+    }
+    if (!className.empty())
+    {
+        lines.push_back(className + " is easy mode");
+        lines.push_back("this " + className + " spec is trash");
+        lines.push_back("why play " + className);
+        if (!nick.empty())
+            lines.push_back("why are " + className + "s pulling everything in " + nick);
+        if (className == "hunter")
+        {
+            lines.push_back("feed your pet");
+            lines.push_back("hunter pet disappeared again");
+            if (!nick.empty())
+                lines.push_back("out of ammo in " + nick);
+        }
+        if (className == "pally" || className == "paladin")
+        {
+            lines.push_back("bubble hearth classic");
+            lines.push_back("found the pally");
+        }
+    }
+    if (bot)
+    {
+        if (bot->isDead() && mob.empty() && !nick.empty())
+            lines.push_back("one shot in " + nick + " lmao");
+        if (bot->GetFreeInventorySpace() < 4)
+        {
+            if (!mob.empty() && mob != "here")
+                lines.push_back("why do " + mob + " drop this junk");
+            else if (!nick.empty())
+                lines.push_back("vendor trash in " + nick + " lmao");
+            else
+                lines.push_back("everything is grey lmao");
+        }
+        uint32 const level = bot->GetLevel();
+        uint32 const gold = bot->GetMoney() / 10000;
+        if (level >= 38 && level <= 44 && gold < 50)
+            lines.push_back("mount gold is aids");
+        if (level >= 58 && level <= 64 && gold < 600)
+            lines.push_back("flying gold is a joke");
+        if (bot->HasSkill(SKILL_HERBALISM) && !nick.empty())
+            lines.push_back("herbs in " + nick + " are camped");
+        if (bot->HasSkill(SKILL_MINING) && !nick.empty())
+            lines.push_back("nodes in " + nick + " are camped");
+        if (bot->HasSkill(SKILL_SKINNING) && !mob.empty() && mob != "here")
+            lines.push_back("skinning " + mob + " is aids");
+        if (bot->GetTeamId() == TEAM_ALLIANCE && !nick.empty())
+            lines.push_back("horde camping the fp in " + nick + " again");
+        if (bot->GetTeamId() == TEAM_HORDE && !nick.empty())
+            lines.push_back("alliance camping the fp in " + nick + " again");
+    }
+    for (char const* line : kDribbleOpeners)
+        lines.push_back(line);
+    for (char const* line : kDribbleLongTakes)
+        lines.push_back(line);
+
+    bool const capital = AreaLooksCapital(bot);
+    std::vector<std::string> preferred;
+    std::vector<std::string> rest;
+    for (std::string const& line : lines)
+    {
+        if (line.empty())
+            continue;
+        if (!threadKey.empty() && LineTooSimilarToRecent(threadKey, line))
+            continue;
+        if (LineRecentlySpoken(line))
+            continue;
+        bool named = (!hint.empty() && line.find(hint) != std::string::npos) ||
+                     (!nick.empty() && line.find(nick) != std::string::npos) ||
+                     (!mob.empty() && line.find(mob) != std::string::npos) ||
+                     (!dungeon.empty() && line.find(dungeon) != std::string::npos) ||
+                     (!className.empty() && line.find(className) != std::string::npos);
+        if (named)
+            preferred.push_back(line);
+        else if (DribbleFitsRoom(line, capital))
+            rest.push_back(line);
+    }
+    std::vector<std::string>* pool = &rest;
+    // Named live slots are a garnish. The wild pool is the room.
+    if (!preferred.empty() && (rest.empty() || urand(0, 99) < 25))
+        pool = &preferred;
+    if (pool->empty())
+        return "";
+    std::string picked = (*pool)[urand(0, pool->size() - 1)];
+    picked = MessyChat(picked);
+    if (picked.empty())
+        return "";
+    NoteSpokenLine(picked);
+    return picked;
+}
+
 std::string PickAmbientCityLine(std::string const& zone, std::string const& threadKey)
 {
     // Already in this city's General. Do not name the city. Do not narrate an itinerary.
@@ -847,19 +1348,27 @@ std::string PickAmbientZoneLine(std::string const& zone, std::string const& thre
             nick + " xp is trash",
             "is " + nick + " even worth it",
             "elites in " + nick + " hit hard",
-            "how crowded is " + nick
+            "how crowded is " + nick,
+            nick + " grind is aids",
+            nick + " quests are aids",
+            "nubs in " + nick,
+            "xp in " + nick + " is slow",
+            "need a grp in " + nick,
+            "who quests in " + nick + " for fun",
+            nick + " is a joke",
+            "why is " + nick + " like this",
+            "elites in " + nick + " are aids"
         }, threadKey);
-        if (!slotted.empty() && urand(0, 99) < 40)
+        if (!slotted.empty())
             return slotted;
     }
     return PickFrom({
         "anyone doing quests here", "whats worth grinding here",
-        "do i need a group for this", "this zone is taking forever",
-        "xp here feels slow", "is this elite soloable",
-        "where do i turn this in", "anyone on the chain here",
-        "mobs here have too much hp", "this grind is mindless",
+        "do i need a group for this", "xp here feels slow",
+        "is this elite soloable", "where do i turn this in",
+        "anyone on the chain here", "mobs here have too much hp",
         "drops here are a joke", "is the fp even close",
-        "this elite is aids", "need a grp for this camp"
+        "need a grp for this camp"
     }, threadKey, false, true);
 }
 
@@ -875,25 +1384,33 @@ std::string PickAmbientQuestLine(std::string const& title, std::string const& th
             "where do i turn in " + hint,
             hint + " is taking forever",
             "this " + hint + " quest sucks",
+            hint + " is aids",
+            "this " + hint + " is aids",
             "skip " + hint + " or no",
             "how many for " + hint,
-            "stuck on " + hint
+            "stuck on " + hint,
+            hint + " is a joke",
+            "who designed " + hint,
+            hint + " can eat me",
+            "why does " + hint + " exist",
+            "skip " + hint + " if you can"
         }, threadKey);
-        if (!slotted.empty() && urand(0, 99) < 80)
+        if (!slotted.empty())
             return slotted;
     }
     return PickFrom({
         "anyone on this quest still", "is this quest soloable",
         "need a hand with this one", "where do i turn this in",
-        "this quest is taking forever", "anyone else stuck on this",
-        "is this even required", "this objective is annoying",
+        "anyone else stuck on this", "is this even required",
         "how many more of these", "grey quests already lol"
     }, threadKey, false, true);
 }
 
-std::string PickAmbientGroupLine(bool inGuild, std::string const& guildie, std::string const& threadKey)
+std::string PickAmbientGroupLine(bool inGuild, std::string const& guildie, std::string const& threadKey,
+                                 std::string const& zone)
 {
     (void)guildie;
+    std::string const nick = ChatZoneNick(zone);
     if (inGuild)
         return PickFrom({
             "anyone for a run", "lf1m for this chain", "need a tank if anyone is on",
@@ -902,10 +1419,20 @@ std::string PickAmbientGroupLine(bool inGuild, std::string const& guildie, std::
             "easy run if anyone is down", "lets knock something out",
             "i can tag along if you need one"
         }, threadKey, false, true);
+    if (!nick.empty())
+    {
+        std::string slotted = PickSlotted({
+            "anyone for quests in " + nick,
+            "lf1m in " + nick,
+            "need a tank in " + nick,
+            "anyone grouping in " + nick
+        }, threadKey);
+        if (!slotted.empty())
+            return slotted;
+    }
     return PickFrom({
-        "anyone for quests in this zone", "lf1m for this chain",
-        "need a tank if anyone is around", "wanna grind together",
-        "anyone for a run", "lf healer", "need 1 more",
+        "lf1m for this chain", "need a tank if anyone is around",
+        "wanna grind together", "anyone for a run", "lf healer", "need 1 more",
         "anyone grouping here", "pst if you want in"
     }, threadKey, false, true);
 }
@@ -924,7 +1451,7 @@ std::string PickAmbientClassLine(std::string const& className, std::string const
     if (!slotted.empty())
         return slotted;
     return PickFrom({
-        "this class feels slow", "hate this spec honestly", "respec soon i think",
+        "hate this spec honestly", "respec soon i think",
         "might reroll lol", "rotation is boring"
     }, threadKey, false, true);
 }
@@ -941,10 +1468,10 @@ std::string PickAmbientDungeonLine(std::string const& dungeon, std::string const
         "wipe on " + place + " again",
         "need dps for " + place
     }, threadKey);
-    if (!slotted.empty() && urand(0, 99) < 80)
+    if (!slotted.empty())
         return slotted;
     return PickFrom({
-        "anyone for a run", "need a healer", "this run is slow", "need a rez",
+        "anyone for a run", "need a healer", "need a rez",
         "boss is next", "food break", "summon pls"
     }, threadKey, false, true);
 }
@@ -975,7 +1502,7 @@ std::string PickGroupReply(std::string const& threadKey, bool inParty, Player* b
             case CLASS_PALADIN:
                 lines.push_back("i tank");
                 lines.push_back("i heal");
-                lines.push_back("pala tank");
+                lines.push_back("pally tank");
                 lines.push_back("holy here");
                 break;
             case CLASS_PRIEST:
@@ -995,6 +1522,168 @@ std::string PickGroupReply(std::string const& threadKey, bool inParty, Player* b
             default:
                 lines.push_back("dps here");
                 lines.push_back("i dps");
+                break;
+        }
+    }
+
+    std::vector<char const*> fresh;
+    for (char const* line : lines)
+    {
+        if (!threadKey.empty() && LineTooSimilarToRecent(threadKey, line))
+            continue;
+        if (LineRecentlySpoken(line))
+            continue;
+        fresh.push_back(line);
+    }
+    if (fresh.empty())
+        return "";
+    std::string const picked = fresh[urand(0, fresh.size() - 1)];
+    NoteSpokenLine(picked);
+    return picked;
+}
+
+bool IsGroupAsk(std::string const& message)
+{
+    if (message.empty())
+        return false;
+    std::string lower = ToLowerCopy(message);
+    while (!lower.empty() && (lower.back() == '?' || lower.back() == '.' || lower.back() == '!' || lower.back() == ' '))
+        lower.pop_back();
+    if (lower == "what for" || lower == "whatfor" || lower.find("what for") != std::string::npos)
+        return true;
+    if (lower.find("which quest") != std::string::npos || lower.find("which instance") != std::string::npos)
+        return true;
+    if (lower.find("what instance") != std::string::npos || lower.find("what dungeon") != std::string::npos)
+        return true;
+    if (lower.find("what lvl") != std::string::npos || lower.find("what level") != std::string::npos)
+        return true;
+    if (lower == "heroic" || lower == "heroic?" || lower == "spots" || lower == "spots?")
+        return true;
+    return false;
+}
+
+bool IsGroupJoin(std::string const& message)
+{
+    if (message.empty())
+        return false;
+    std::string lower = ToLowerCopy(message);
+    while (!lower.empty() && (lower.back() == '?' || lower.back() == '.' || lower.back() == '!' || lower.back() == ' '))
+        lower.pop_back();
+    if (lower == "im in" || lower == "i m in" || lower == "in" || lower == "me" || lower == "down")
+        return true;
+    if (lower == "im down" || lower == "i can go" || lower == "can go")
+        return true;
+    if (HasWord(lower, "pst") || HasWord(lower, "inv") || lower.find("invite") != std::string::npos)
+        return true;
+    if (lower.find("im in") != std::string::npos || lower.find("i m in") != std::string::npos)
+        return true;
+    if (lower.find("i tank") != std::string::npos || lower.find("i can tank") != std::string::npos ||
+        lower.find("tank here") != std::string::npos || lower == "tank")
+        return true;
+    if (lower.find("i heal") != std::string::npos || lower.find("heal here") != std::string::npos ||
+        lower == "heal" || lower == "heals")
+        return true;
+    if (lower == "dps" || lower == "i dps" || lower == "dps here")
+        return true;
+    return false;
+}
+
+std::string PickGroupPurpose(Player* bot, std::string const& threadKey)
+{
+    std::vector<std::string> lines;
+    if (bot && bot->GetMap() && bot->GetMap()->IsDungeon())
+    {
+        std::string const place = FirstPlaceWord(bot->GetMap()->GetMapName());
+        lines.push_back("this run");
+        if (!place.empty() && place != "here")
+        {
+            lines.push_back(place);
+            lines.push_back("need 1 for " + place);
+        }
+    }
+
+    if (bot)
+    {
+        uint32 const zoneId = BotLiveZoneId(bot);
+        for (auto const& [questId, status] : bot->getQuestStatusMap())
+        {
+            if (status.Status != QUEST_STATUS_INCOMPLETE)
+                continue;
+            Quest const* quest = sObjectMgr->GetQuestTemplate(questId);
+            if (!quest)
+                continue;
+            if (zoneId && quest->GetZoneOrSort() > 0 &&
+                static_cast<uint32>(quest->GetZoneOrSort()) != zoneId)
+                continue;
+            std::string const hint = ShortQuestHint(quest->GetTitle());
+            if (!hint.empty())
+            {
+                lines.push_back(hint);
+                lines.push_back("this chain");
+                break;
+            }
+        }
+        std::string const nick = ChatZoneNick(BotPlaceName(bot));
+        if (!nick.empty())
+        {
+            lines.push_back("quests in " + nick);
+            lines.push_back(nick + " grind");
+        }
+    }
+
+    if (lines.empty())
+    {
+        lines.emplace_back("this chain");
+        lines.emplace_back("a run");
+        lines.emplace_back("quests");
+        lines.emplace_back("heroic");
+    }
+
+    std::vector<std::string> fresh;
+    for (std::string const& line : lines)
+    {
+        if (line.empty())
+            continue;
+        if (!threadKey.empty() && LineTooSimilarToRecent(threadKey, line))
+            continue;
+        if (LineRecentlySpoken(line))
+            continue;
+        fresh.push_back(line);
+    }
+    if (fresh.empty())
+        return PickFrom({ "this chain", "a run", "quests", "heroic" }, threadKey, false, true);
+    std::string const picked = fresh[urand(0, fresh.size() - 1)];
+    NoteSpokenLine(picked);
+    return picked;
+}
+
+std::string PickGroupChime(Player* bot, std::string const& threadKey)
+{
+    std::vector<char const*> lines = { "im down", "me", "i can go", "need 1 still" };
+    if (bot)
+    {
+        switch (bot->getClass())
+        {
+            case CLASS_WARRIOR:
+            case CLASS_DEATH_KNIGHT:
+                lines.push_back("i tank");
+                lines.push_back("tank here");
+                break;
+            case CLASS_PALADIN:
+                lines.push_back("i tank");
+                lines.push_back("i heal");
+                break;
+            case CLASS_PRIEST:
+            case CLASS_SHAMAN:
+                lines.push_back("i heal");
+                lines.push_back("heal here");
+                break;
+            case CLASS_DRUID:
+                lines.push_back("i tank");
+                lines.push_back("i heal");
+                break;
+            default:
+                lines.push_back("dps here");
                 break;
         }
     }
@@ -1073,6 +1762,9 @@ bool LooksUnlikeWowChat(std::string const& line, ChatLineStyle style)
         return true;
 
     std::string const lower = ToLowerCopy(line);
+    if (lower == "this guy" || lower == "this chat" || lower == "this room" ||
+        lower == "well that happened" || lower == "chat is wild today")
+        return true;
     static char const* bans[] = {
         "i think", "i believe", "that's not", "that is not",
         "nearby", "the area", "for some",
@@ -1130,6 +1822,31 @@ std::string SanitizeBotChatLine(std::string const& line, ChatLineStyle style)
         out.erase(0, space + 1);
         while (!out.empty() && std::isspace(static_cast<unsigned char>(out.front())))
             out.erase(out.begin());
+    }
+    // pala -> pally. Do not touch paladin.
+    {
+        std::string const lower = ToLowerCopy(out);
+        std::string fixed;
+        fixed.reserve(out.size() + 8);
+        size_t i = 0;
+        while (i < out.size())
+        {
+            bool const leftOk = i == 0 || !std::isalnum(static_cast<unsigned char>(out[i - 1]));
+            if (leftOk && i + 4 <= out.size() && lower.compare(i, 4, "pala") == 0)
+            {
+                bool const rightOk = i + 4 == out.size() ||
+                                     !std::isalnum(static_cast<unsigned char>(out[i + 4]));
+                if (rightOk)
+                {
+                    fixed += "pally";
+                    i += 4;
+                    continue;
+                }
+            }
+            fixed += out[i];
+            ++i;
+        }
+        out = std::move(fixed);
     }
     if (out.empty() || LooksLikeSlangSalad(out) || LooksUnlikeWowChat(out, style))
         return "";

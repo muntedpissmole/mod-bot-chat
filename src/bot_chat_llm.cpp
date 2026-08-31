@@ -193,7 +193,7 @@ namespace
                 return "The player told you to shut up. Clap back or shrug. One short line. "
                        "Match their language. Do not lecture. Do not repeat their words. Do not use their name.";
             default:
-                return "Match their tone and language. Banter like a Wrath private-server player. "
+                return "Match their tone and language. Banter like a WoW player in 3.3.5 chat. "
                        "If they swear, you can swear. Speak as yourself. "
                        "This is not an RP realm. Do not play a helper NPC.";
         }
@@ -204,7 +204,7 @@ namespace
                             std::string const& thread)
     {
         std::ostringstream ss;
-        ss << "You are " << botName << ", a Wrath of the Lich King 3.3.5 player on a private server.\n"
+        ss << "You are " << botName << ", a World of Warcraft 3.3.5 player.\n"
            << botFact << "\n"
            << "Channel: " << channel << ".\n";
         if (!place.empty())
@@ -233,6 +233,7 @@ namespace
            << "Speak only as yourself. Never 'I know a paladin' or offer some other player. "
            << "If they need a tank, say if YOU tank, ask what for, or pst. Not RP.\n"
            << "No essays. No narration. No lecturing. Chat line only.\n"
+           << "Paladin nick is pally, never pala. Do not say this guy or this chat.\n"
            << "Do not repeat a point already made in the recent chat. "
            << "If the recent chat is looping the same idea, one short closer then stop.\n"
            << ToneInstruction(tone) << "\n";
@@ -248,7 +249,7 @@ namespace
                                     std::string const& lastMsg, std::string const& thread)
     {
         std::ostringstream ss;
-        ss << "You are " << botName << ", a Wrath of the Lich King 3.3.5 player on a private server.\n"
+        ss << "You are " << botName << ", a World of Warcraft 3.3.5 player.\n"
            << botFact << "\n"
            << "Channel: " << channel << ".\n";
         if (!place.empty())
@@ -267,7 +268,8 @@ namespace
         ss << "Stay on that topic. Do not greet. Do not start a new topic. Do not repeat them.\n"
            << "Do not use anyone's name. Do not invent a raid or a time.\n"
            << "Speak as yourself only. Never refer another player or class in town who can help.\n"
-           << "Lowercase ok. Slang ok. No quotes. No /commands. No lecturing.\n";
+           << "Lowercase ok. Slang ok. No quotes. No /commands. No lecturing.\n"
+           << "Paladin nick is pally, never pala. Do not say this guy or this chat.\n";
         if (!thread.empty())
             ss << thread << "\n";
         ss << "Last line: " << lastMsg << "\n"
@@ -280,7 +282,7 @@ namespace
                                  std::string const& thread)
     {
         std::ostringstream ss;
-        ss << "You are " << botName << ", a Wrath of the Lich King 3.3.5 player on a private server.\n"
+        ss << "You are " << botName << ", a World of Warcraft 3.3.5 player.\n"
            << botFact << "\n"
            << "Channel: Guild.\n";
         if (!place.empty())
@@ -293,6 +295,7 @@ namespace
            << "No sticky real-life identity (wife, kids, work tomorrow).\n"
            << "Do not say you disconnected. You are typing, so you are here.\n"
            << "Lowercase ok. Slang ok. No quotes. No /commands. No lecturing.\n"
+           << "Paladin nick is pally, never pala. Do not say this guy or this chat.\n"
            << "Do not copy the hint word for word. Capture the vibe.\n";
         if (!thread.empty())
             ss << thread << "\n";
@@ -632,6 +635,18 @@ bool TryBotChatLlmContinue(Player* bot, std::string const& lastMsg,
         std::string line = fallback;
         if (line.empty())
             line = PickGroupReply(threadKey, sourceLocal == SRC_PARTY_LOCAL || sourceLocal == SRC_RAID_LOCAL, bot);
+        if (line.empty())
+            return false;
+        DeliverBotChatReply({ bot }, bot, line, sourceLocal, channel);
+        return true;
+    }
+
+    // Arguments and flame stay canned. The model lectures or invents raids.
+    if (LooksLikeDribble(lastMsg) || IsHostileTalk(lastMsg))
+    {
+        std::string line = fallback;
+        if (line.empty())
+            line = PickContinueForLast(lastMsg, threadKey);
         if (line.empty())
             return false;
         DeliverBotChatReply({ bot }, bot, line, sourceLocal, channel);
