@@ -3,6 +3,7 @@
 
 #include "ScriptMgr.h"
 #include <string>
+#include <vector>
 
 enum ChatChannelSourceLocal
 {
@@ -22,6 +23,9 @@ extern const char* ChatChannelSourceLocalStr[];
 std::string rtrim(const std::string& s);
 ChatChannelSourceLocal GetChannelSourceLocal(uint32_t type);
 void ProcessBotChatMessage(Player* bot, const std::string& msg, ChatChannelSourceLocal sourceLocal, Channel* channel);
+void DeliverBotChatReply(std::vector<Player*> const& bots, Player* sender, std::string const& reply,
+                         ChatChannelSourceLocal sourceLocal, Channel* channel);
+void SendBotChannelLine(Player* bot, std::string const& channelName, std::string const& line);
 
 void SaveBotConversationHistoryToDB();
 

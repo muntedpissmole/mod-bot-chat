@@ -8,6 +8,7 @@
 #include <sstream>
 #include <algorithm>
 #include <cctype>
+#include <unordered_set>
 
 class Player;
 
@@ -182,6 +183,87 @@ inline bool ChatLinesSimilar(std::string const& a, std::string const& b)
     if (!uni)
         return false;
     return (shared * 100) / uni >= 70;
+}
+
+// Drop stop words and turn unknown tokens (zone/quest names) into # so
+// "anyone doing quests in un goro" and "anyone doing quests in searing gorge"
+// share a signature. Real players notice the template, not the place name.
+inline std::string ChatLineSignature(std::string const& text)
+{
+    static std::unordered_set<std::string> const stop = {
+        "a", "an", "the", "in", "on", "at", "of", "to", "and"
+    };
+    static std::unordered_set<std::string> const vocab = {
+        "anyone", "anybody", "else", "doing", "quest", "quests", "grind", "grinding",
+        "xp", "tank", "tanks", "pala", "paladin", "warrior", "mage", "priest", "druid",
+        "rogue", "hunter", "shaman", "warlock", "dk", "heal", "healer", "healing", "dps",
+        "grp", "group", "lfg", "lfm", "lf1m", "lf2m", "lf3m", "ah", "bank", "trainer",
+        "fp", "inn", "port", "fly", "glyphs", "repair", "bill", "prices", "trash",
+        "vendor", "vendored", "junk", "town", "chain", "turnin", "turn", "hand",
+        "stuck", "soloable", "bugged", "worth", "slow", "forever", "elite", "mobs",
+        "drops", "run", "rez", "ready", "pst", "busy", "down", "instance", "dungeon",
+        "need", "still", "wanna", "want", "got", "know", "where", "what", "how",
+        "which", "is", "are", "do", "does", "even", "good", "sucks", "suck", "here",
+        "too", "same", "yeah", "im", "i", "me", "you", "u", "we", "this", "that",
+        "it", "my", "spec", "class", "lvl", "respec", "lag", "fps", "isp", "dc",
+        "queue", "client", "hitching", "froze", "spike", "heat", "rain", "storm",
+        "thunder", "news", "game", "watching", "coffee", "sleep", "chair", "back",
+        "room", "loud", "eyes", "smoke", "power", "monday", "friday", "blizzard",
+        "servers", "brb", "g2g", "afk", "logging", "food", "ty", "thx", "np", "yw",
+        "gz", "gj", "wb", "gl", "gg", "wp", "inv", "whisper", "room", "later",
+        "almost", "done", "out", "heading", "packed", "awful", "insane", "up",
+        "from", "around", "together", "healer", "easy", "slow", "rough", "feels",
+        "taking", "annoying", "skip", "or", "no", "yes", "yet", "again", "bit",
+        "sec", "huh", "wdym", "n", "lol", "lmao", "true", "yep", "kk", "ok",
+        "cya", "gn", "bb", "night", "hey", "hi", "yo", "sup", "rip", "oof", "f",
+        "re", "welc", "grats", "nice", "thx", "tyvm", "guys", "man", "too",
+        "watching", "cant", "focus", "either", "wild", "isnt", "dying", "killing",
+        "brutal", "flickered", "working", "freezing", "loud", "joke", "spike",
+        "one", "more", "then", "im", "out", "for", "if", "its", "this", "one",
+        "instance", "dungeon", "heroic", "naxx", "kara", "heroic", "pst", "grouped",
+        "questing", "flying", "combat", "pulling", "ghost", "dead", "corpse",
+        "sell", "selling", "glyphs", "mage", "port", "trainer", "fly",
+        "holy", "disc", "resto", "bear", "heroic", "spots", "grouped",
+        "summon", "wipe", "food", "buffs", "buffing", "neighbors", "fan",
+        "bags", "rares", "grey", "rotation", "reroll", "packed", "crowded",
+        "maze", "greens", "gold", "sink", "ages", "spare", "east", "guard",
+        "boat", "stomach", "water", "keyboard", "desk", "phone", "sun",
+        "empty", "buzzing", "bio", "addon", "error", "loading", "screen",
+        "can", "tank", "heal", "dps", "pala", "priest", "lvl"
+    };
+
+    std::vector<std::string> tokens = SplitString(NormalizeChatLine(text), ' ');
+    std::string out;
+    bool lastHash = false;
+    for (std::string const& t : tokens)
+    {
+        if (stop.count(t))
+            continue;
+        std::string const piece = vocab.count(t) ? t : "#";
+        if (piece == "#" && lastHash)
+            continue;
+        if (!out.empty())
+            out.push_back(' ');
+        out += piece;
+        lastHash = (piece == "#");
+    }
+    return out;
+}
+
+inline bool ChatLineShapesMatch(std::string const& a, std::string const& b)
+{
+    std::string const sa = ChatLineSignature(a);
+    std::string const sb = ChatLineSignature(b);
+    if (sa.empty() || sb.empty() || sa != sb)
+        return false;
+    // A single leftover token ("#", "tank") is too weak to block the whole realm.
+    unsigned parts = 1;
+    for (char c : sa)
+    {
+        if (c == ' ')
+            ++parts;
+    }
+    return parts >= 2 || (sa != "#" && sa.size() >= 4);
 }
 
 // Sanitize a string to be valid UTF-8 by removing or replacing invalid bytes

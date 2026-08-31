@@ -2,9 +2,11 @@
 
 ###################################################################################################
 # MOD-BOT-CHAT
-# Playerbots chat like Wrath private-server people. No Ollama / LLM.
-# Engine: canned social lines + live taxis/NPCs/quests/zones.
-# Trade ads are mod-trade-chat. Pass-by /hi is mod-well-met.
+# Wrath private-server room: overlapping short lines, real back-and-forth,
+# tone matching, no canned loops. Engine owns channel/combat/Questie/Trade/
+# gz/help. Local Ollama only writes the sentence when a real player spoke.
+# Ambient volume follows mod-circadian-bots pop. Trade ads are
+# mod-trade-chat. Pass-by /hi is mod-well-met.
 ###################################################################################################
 
 BotChat.Enable = 1
@@ -29,7 +31,7 @@ BotChat.MaxBotsToPick = 1
 BotChat.EnableSocialConventions = 1
 BotChat.SocialCueSeconds = 45
 BotChat.DisableRepliesInCombat = 1
-BotChat.EnableWhisperReplies = 0
+BotChat.EnableWhisperReplies = 1
 BotChat.AlwaysReplyToPlayerQuestions = 1
 BotChat.QuestionReplyChanceBonus = 25
 
@@ -38,17 +40,19 @@ BotChat.DisableForSayYell = 0
 BotChat.DisableForGuild = 0
 BotChat.DisableForParty = 0
 
-# Ambient
+# Ambient (peak-hour rates; live chance/interval scale with random-bot
+# online count vs AiPlayerbot.MaxRandomBots unless ScaleWithPopulation = 0)
 BotChat.EnableRandomChatter = 1
 BotChat.MinRandomInterval = 45
 BotChat.MaxRandomInterval = 180
 BotChat.RandomChatterBotCommentChance = 18
 BotChat.EnableGuildRandomAmbientChatter = 1
 BotChat.GuildRandomChatterChance = 12
+BotChat.ScaleWithPopulation = 1
 BotChat.EnableChannelThreads = 1
 BotChat.ChannelThreadMaxLines = 24
 BotChat.TopicIdleSeconds = 180
-BotChat.ContinueTopicChance = 85
+BotChat.ContinueTopicChance = 40
 BotChat.PreferThreadRegulars = 1
 
 # Events
@@ -62,6 +66,16 @@ BotChat.GuildChatterBotCommentChance = 15
 # Knowledge
 BotChat.EnableGameKnowledge = 1
 BotChat.GameKnowledgeMaxFacts = 4
+
+# Local Ollama wording layer (K8 GPU). Ambient General stays canned.
+# llama3.2:3b is too small — use 7B/8B. Engine still gates every reply.
+BotChat.EnableLLM = 1
+BotChat.Url = http://127.0.0.1:11434/api/generate
+BotChat.Model = llama3.1:8b
+BotChat.NumPredict = 64
+BotChat.Temperature = 0.95
+BotChat.LLMTimeout = 15
+BotChat.MaxConcurrentQueries = 1
 
 # Typing delay
 BotChat.EnableTypingSimulation = 1

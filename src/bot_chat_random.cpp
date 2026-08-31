@@ -5,6 +5,7 @@
 #include "bot_chat_thread.h"
 #include "bot_chat_knowledge.h"
 #include "bot_chat_social.h"
+#include "bot_chat_llm.h"
 #include "Log.h"
 #include "Player.h"
 #include "PlayerbotAI.h"
@@ -23,6 +24,7 @@
 #include "GridNotifiers.h"
 #include "Guild.h"
 #include <vector>
+#include <unordered_set>
 #include <random>
 #include <thread>
 #include <ctime>
@@ -52,10 +54,31 @@ namespace
         Zone,
         Group,
         Life,
+        World,
         Class,
         Dungeon,
         Silence
     };
+
+    std::string BotClassName(Player* bot)
+    {
+        if (!bot)
+            return "";
+        switch (bot->getClass())
+        {
+            case CLASS_WARRIOR:      return "warrior";
+            case CLASS_PALADIN:      return "paladin";
+            case CLASS_HUNTER:       return "hunter";
+            case CLASS_ROGUE:        return "rogue";
+            case CLASS_PRIEST:       return "priest";
+            case CLASS_DEATH_KNIGHT: return "dk";
+            case CLASS_SHAMAN:       return "shaman";
+            case CLASS_MAGE:         return "mage";
+            case CLASS_WARLOCK:      return "warlock";
+            case CLASS_DRUID:        return "druid";
+            default:                 return "";
+        }
+    }
 
     struct AmbientPick
     {
@@ -63,6 +86,7 @@ namespace
         std::string fact;
         std::string instruction;
         std::string canned;
+        std::string lastLine;
     };
 
     std::mutex g_AmbientTopicMutex;
@@ -84,74 +108,63 @@ namespace
         return false;
     }
 
+    uint32 LiveZoneId(Player* p)
+    {
+        if (!p)
+            return 0;
+        if (p->GetMap())
+            return p->GetMap()->GetZoneId(p->GetPhaseMask(), p->GetPositionX(), p->GetPositionY(), p->GetPositionZ());
+        return p->GetZoneId();
+    }
+
+    uint32 LiveAreaId(Player* p)
+    {
+        if (!p)
+            return 0;
+        if (p->GetMap())
+            return p->GetMap()->GetAreaId(p->GetPhaseMask(), p->GetPositionX(), p->GetPositionY(), p->GetPositionZ());
+        return p->GetAreaId();
+    }
+
+    std::string AreaName(uint32 areaId)
+    {
+        AreaTableEntry const* area = sAreaTableStore.LookupEntry(areaId);
+        if (!area || !area->area_name[0] || !area->area_name[0][0])
+            return "";
+        return area->area_name[0];
+    }
+
     std::string BotZoneName(Player* bot)
     {
-        PlayerbotAI* ai = PlayerbotsMgr::instance().GetPlayerbotAI(bot);
-        if (!ai)
-            return "this zone";
-        AreaTableEntry const* zone = ai->GetCurrentZone();
-        if (zone)
-        {
-            std::string name = ai->GetLocalizedAreaName(zone);
-            if (!name.empty())
-                return name;
-        }
-        AreaTableEntry const* area = ai->GetCurrentArea();
-        if (area)
-        {
-            std::string name = ai->GetLocalizedAreaName(area);
-            if (!name.empty())
-                return name;
-        }
-        return "this zone";
+        std::string name = AreaName(LiveZoneId(bot));
+        return name.empty() ? "this zone" : name;
     }
 
     std::string BotPlaceForAmbient(Player* bot)
     {
-        PlayerbotAI* ai = PlayerbotsMgr::instance().GetPlayerbotAI(bot);
-        if (!ai)
-            return BotZoneName(bot);
+        if (!bot)
+            return "this zone";
         if (bot->GetMap() && bot->GetMap()->IsDungeon())
         {
             std::string const mapName = bot->GetMap()->GetMapName();
             if (!mapName.empty())
                 return mapName;
         }
-        AreaTableEntry const* area = ai->GetCurrentArea();
-        AreaTableEntry const* zone = ai->GetCurrentZone();
-        if (area)
+        uint32 const zoneId = LiveZoneId(bot);
+        uint32 const areaId = LiveAreaId(bot);
+        if (areaId && areaId != zoneId)
         {
-            std::string name = ai->GetLocalizedAreaName(area);
-            if (!name.empty())
-                return name;
-        }
-        if (zone)
-        {
-            std::string name = ai->GetLocalizedAreaName(zone);
-            if (!name.empty())
-                return name;
+            if (AreaTableEntry const* area = sAreaTableStore.LookupEntry(areaId))
+            {
+                if (area->zone == zoneId)
+                {
+                    std::string name = AreaName(areaId);
+                    if (!name.empty())
+                        return name;
+                }
+            }
         }
         return BotZoneName(bot);
-    }
-
-    std::string BotClassShort(Player* bot)
-    {
-        if (!bot)
-            return "";
-        switch (bot->getClass())
-        {
-            case CLASS_WARRIOR: return "warrior";
-            case CLASS_PALADIN: return "paladin";
-            case CLASS_HUNTER: return "hunter";
-            case CLASS_ROGUE: return "rogue";
-            case CLASS_PRIEST: return "priest";
-            case CLASS_DEATH_KNIGHT: return "dk";
-            case CLASS_SHAMAN: return "shaman";
-            case CLASS_MAGE: return "mage";
-            case CLASS_WARLOCK: return "warlock";
-            case CLASS_DRUID: return "druid";
-            default: return "";
-        }
     }
 
     bool PlayerIsReal(Player* player)
@@ -193,7 +206,8 @@ namespace
         if (!guild)
             return "";
 
-        std::vector<std::string> realNames;
+        // Never name a real player in unsolicited wb/hey. That is why /g kept
+        // saying "wb Pissmole" with no login. Event chatter handles real wb.
         std::vector<std::string> botNames;
         for (auto const& pair : ObjectAccessor::GetPlayers())
         {
@@ -202,34 +216,44 @@ namespace
                 continue;
             if (!member->GetGuild() || member->GetGuild()->GetId() != guild->GetId())
                 continue;
-            if (PlayerbotsMgr::instance().GetPlayerbotAI(member))
-                botNames.push_back(member->GetName());
-            else
-                realNames.push_back(member->GetName());
+            if (!PlayerbotsMgr::instance().GetPlayerbotAI(member))
+                continue;
+            botNames.push_back(member->GetName());
         }
-        if (!realNames.empty())
-            return realNames[urand(0, realNames.size() - 1)];
-        if (!botNames.empty())
-            return botNames[urand(0, botNames.size() - 1)];
-        return "";
+        if (botNames.empty())
+            return "";
+        return botNames[urand(0, botNames.size() - 1)];
     }
 
     std::string RandomIncompleteQuestTitle(Player* bot)
     {
+        if (!bot)
+            return "";
+        uint32 const zoneId = LiveZoneId(bot);
+        uint32 const areaId = LiveAreaId(bot);
         std::vector<std::string> titles;
         for (auto const& [questId, status] : bot->getQuestStatusMap())
         {
             if (status.Status != QUEST_STATUS_INCOMPLETE)
                 continue;
-            if (Quest const* quest = sObjectMgr->GetQuestTemplate(questId))
-            {
-                if (!quest->GetTitle().empty())
-                    titles.push_back(quest->GetTitle());
-            }
+            Quest const* quest = sObjectMgr->GetQuestTemplate(questId);
+            if (!quest || quest->GetTitle().empty())
+                continue;
+            int32 const z = quest->GetZoneOrSort();
+            if (z > 0 && uint32(z) != zoneId && uint32(z) != areaId)
+                continue;
+            titles.push_back(quest->GetTitle());
         }
         if (titles.empty())
             return "";
         return titles[urand(0, titles.size() - 1)];
+    }
+
+    uint32 NextAmbientDelay()
+    {
+        uint32 const minI = ScaleChatInterval(g_MinRandomInterval);
+        uint32 const maxI = ScaleChatInterval(g_MaxRandomInterval);
+        return urand(minI, maxI < minI ? minI : maxI);
     }
 
     bool TopicRecentlyOpened(const std::string& key, int cooldownSeconds)
@@ -257,11 +281,27 @@ namespace
         uint32 continueChance = g_ContinueTopicChance;
         if (continueChance > 100)
             continueChance = 100;
-        if (threadActive && urand(0, 99) < continueChance)
+        // An active thread is a conversation. Do not start a new canned topic over it.
+        if (threadActive)
         {
             pick.seed = AmbientSeed::Continue;
+            if (urand(0, 99) >= continueChance || PlayerSpokeRecently(threadKey, 25) ||
+                ThreadLooksLooped(threadKey))
+            {
+                pick.seed = AmbientSeed::Silence;
+                return pick;
+            }
+            uint32 const trail = CountTrailingBotLines(threadKey);
+            uint32 const maxTrail = inGuild ? 2 : 2;
+            if (trail >= maxTrail)
+            {
+                pick.seed = AmbientSeed::Silence;
+                return pick;
+            }
             std::string const last = GetLastThreadText(threadKey);
-            if (IsAck(last) || IsDismissal(last) || LooksLikeAddonAnnounce(last) ||
+            pick.lastLine = last;
+            if (IsAck(last) || IsDismissal(last) || IsHostileTalk(last) || LooksLikeAddonAnnounce(last) ||
+                last.find("raid") != std::string::npos ||
                 (IsShortFollowUp(last) && GetLastPlayerHelpQuery(threadKey).empty()))
             {
                 pick.seed = AmbientSeed::Silence;
@@ -269,24 +309,32 @@ namespace
             }
             ChatQuery const lastQ = ParseChatQuery(last);
             SocialAct const lastAct = DetectSocialAct(last);
-            if (lastAct != SocialAct::None && lastAct != SocialAct::Greeting)
+            if (lastAct == SocialAct::Greeting || lastAct == SocialAct::Farewell ||
+                lastAct == SocialAct::Brb || lastAct == SocialAct::WelcomeBack)
+            {
+                pick.seed = AmbientSeed::Silence;
+                return pick;
+            }
+            if (lastAct != SocialAct::None && lastAct != SocialAct::Reaction)
                 pick.canned = PickSocialReply(lastAct, threadKey);
             else if (IsActivityAsk(last))
                 pick.canned = PickActivityReply(bot, threadKey);
             else if (lastQ.topic == ChatTopic::LookingForGroup)
-                pick.canned = PickGroupReply(threadKey, !inGuild && bot->GetGroup());
-            else if (lastQ.intent != ChatIntent::HelpRequest && lastQ.intent != ChatIntent::Question)
-                pick.canned = PickSocialReply(SocialAct::Reaction, threadKey);
-            if (!g_RandomChatterContinueTemplate.empty())
-                pick.instruction = g_RandomChatterContinueTemplate;
-            else if (inGuild)
-                pick.instruction = "This is /g. One short readable line that fits the last message. Stay on that topic.";
+                pick.canned = PickGroupReply(threadKey, !inGuild && bot->GetGroup(), bot);
             else
-                pick.instruction = "Continue the recent channel chat with one short line. Stay on topic. Do not greet.";
+                pick.canned = PickContinueForLast(last, threadKey);
+            if (pick.canned.empty())
+            {
+                pick.seed = AmbientSeed::Silence;
+                return pick;
+            }
             return pick;
         }
 
-        if (TopicRecentlyOpened(threadKey, 50))
+        int topicGap = 90;
+        if (g_MinRandomInterval > 90)
+            topicGap = static_cast<int>(g_MinRandomInterval);
+        if (TopicRecentlyOpened(threadKey, topicGap))
         {
             pick.seed = AmbientSeed::Silence;
             return pick;
@@ -303,49 +351,52 @@ namespace
 
         std::string questTitle = RandomIncompleteQuestTitle(bot);
         std::string placeName = BotPlaceForAmbient(bot);
-        std::string className = BotClassShort(bot);
-        bool capital = AreaIsCapital(bot->GetZoneId());
+        bool capital = AreaIsCapital(LiveZoneId(bot));
         bool inDungeon = bot->GetMap() && bot->GetMap()->IsDungeon();
 
         if (inGuild)
         {
-            options.push_back({AmbientSeed::Life, 30, "", ""});
+            options.push_back({AmbientSeed::Life, 20, "", ""});
 
             std::string guildie = RandomOnlineGuildieName(bot);
             if (!guildie.empty())
-                options.push_back({AmbientSeed::Group, 22, guildie, ""});
+                options.push_back({AmbientSeed::Group, 16, guildie, ""});
 
             if (!questTitle.empty())
-                options.push_back({AmbientSeed::Quest, 14, questTitle, ""});
+                options.push_back({AmbientSeed::Quest, 12, questTitle, ""});
 
             if (bot->GetGroup())
-                options.push_back({AmbientSeed::Group, 12, "", ""});
+                options.push_back({AmbientSeed::Group, 10, "", ""});
 
-            options.push_back({AmbientSeed::Silence, 18, "", ""});
+            options.push_back({AmbientSeed::Silence, 14, "", ""});
         }
         else
         {
             if (inDungeon)
                 options.push_back({AmbientSeed::Dungeon, 28, bot->GetMap()->GetMapName(), ""});
             else if (!questTitle.empty())
-                options.push_back({AmbientSeed::Quest, 26, questTitle, ""});
+                options.push_back({AmbientSeed::Quest, 30, questTitle, ""});
 
             if (!inDungeon)
             {
                 if (capital)
-                    options.push_back({AmbientSeed::City, 24, placeName, ""});
+                    options.push_back({AmbientSeed::City, 16, placeName, ""});
                 else
-                    options.push_back({AmbientSeed::Zone, 26, placeName, ""});
+                    options.push_back({AmbientSeed::Zone, 24, placeName, ""});
             }
 
             if (bot->GetGroup())
-                options.push_back({AmbientSeed::Group, 12, "", ""});
+                options.push_back({AmbientSeed::Group, 14, "", ""});
+            else
+                options.push_back({AmbientSeed::Group, 10, "", ""});
 
-            if (!className.empty())
-                options.push_back({AmbientSeed::Class, 10, className, ""});
+            std::string const cls = BotClassName(bot);
+            if (!cls.empty())
+                options.push_back({AmbientSeed::Class, 6, cls, ""});
 
-            options.push_back({AmbientSeed::Life, capital ? 8 : 5, "", ""});
-            options.push_back({AmbientSeed::Silence, 16, "", ""});
+            options.push_back({AmbientSeed::World, 10, "", ""});
+            options.push_back({AmbientSeed::Life, 3, "", ""});
+            options.push_back({AmbientSeed::Silence, 10, "", ""});
         }
 
         uint32 total = 0;
@@ -366,7 +417,9 @@ namespace
         }
 
         if (pick.seed == AmbientSeed::Life)
-            pick.canned = PickAmbientLifeLine(threadKey);
+            pick.canned = inGuild ? PickAmbientGuildLine(threadKey) : PickAmbientLifeLine(threadKey);
+        else if (pick.seed == AmbientSeed::World)
+            pick.canned = PickAmbientWorldLine(threadKey);
         else if (pick.seed == AmbientSeed::City)
             pick.canned = PickAmbientCityLine(pick.fact, threadKey);
         else if (pick.seed == AmbientSeed::Zone)
@@ -398,7 +451,12 @@ void BotChatRandom::OnUpdate(uint32 diff)
     static uint32_t timer = 0;
     if (timer <= diff)
     {
-        timer = 30000;
+        uint32 tickMs = g_MinRandomInterval ? g_MinRandomInterval * 1000 : 30000;
+        if (tickMs > 30000)
+            tickMs = 30000;
+        if (tickMs < 2000)
+            tickMs = 2000;
+        timer = tickMs;
         if (g_DebugEnabled)
             LOG_INFO("server.loading", "[Bot Chat] RandomChatter tick fired (HandleRandomChatter called)");
         HandleRandomChatter();
@@ -412,6 +470,7 @@ void BotChatRandom::OnUpdate(uint32 diff)
 void BotChatRandom::HandleRandomChatter()
 {
     uint32 guildAmbientThisTick = 0;
+    std::unordered_set<std::string> threadsSpokenThisTick;
     auto const& allPlayers = ObjectAccessor::GetPlayers();
 
     std::vector<Player*> realPlayers;
@@ -441,6 +500,10 @@ void BotChatRandom::HandleRandomChatter()
         bool nearRealPlayer = false;
         for (Player* realPlayer : realPlayers)
         {
+            if (bot->GetMapId() != realPlayer->GetMapId())
+                continue;
+            if (LiveZoneId(bot) != LiveZoneId(realPlayer))
+                continue;
             if (bot->GetDistance(realPlayer) <= g_RandomChatterRealPlayerDistance)
             {
                 nearRealPlayer = true;
@@ -460,7 +523,7 @@ void BotChatRandom::HandleRandomChatter()
 
             if (nextRandomChatTime.find(guid) == nextRandomChatTime.end())
             {
-                nextRandomChatTime[guid] = now + urand(g_MinRandomInterval, g_MaxRandomInterval);
+                nextRandomChatTime[guid] = now + NextAmbientDelay();
                 continue;
             }
 
@@ -471,7 +534,8 @@ void BotChatRandom::HandleRandomChatter()
             // general comment chance. Never stack both, and do not reset the
             // per-bot timer on a failed roll (retry next tick).
             bool const inGuild = hasRealPlayerInGuild && g_EnableGuildRandomAmbientChatter;
-            uint32_t const talkChance = inGuild ? g_GuildRandomChatterChance : g_RandomChatterBotCommentChance;
+            uint32_t const talkChance = ScaleChatChance(inGuild ? g_GuildRandomChatterChance
+                                                                : g_RandomChatterBotCommentChance);
             if (urand(0, 99) >= talkChance)
                 continue;
 
@@ -488,6 +552,12 @@ void BotChatRandom::HandleRandomChatter()
                 threadActive = g_EnableChannelThreads && ThreadIsActive(ambientThreadKey, g_TopicIdleSeconds);
             }
 
+            if (PlayerSpokeRecently(ambientThreadKey, 25))
+            {
+                nextRandomChatTime[guid] = now + NextAmbientDelay();
+                continue;
+            }
+
             if (g_PreferThreadRegulars && threadActive &&
                 !IsRecentSpeaker(ambientThreadKey, guid) &&
                 urand(0, 99) < 65)
@@ -498,7 +568,7 @@ void BotChatRandom::HandleRandomChatter()
             AmbientPick ambient = PickAmbientSeed(bot, ambientThreadKey, threadActive, inGuild);
             if (ambient.seed == AmbientSeed::Silence || ambient.canned.empty())
             {
-                nextRandomChatTime[guid] = now + urand(g_MinRandomInterval, g_MaxRandomInterval);
+                nextRandomChatTime[guid] = now + NextAmbientDelay();
                 continue;
             }
 
@@ -511,7 +581,7 @@ void BotChatRandom::HandleRandomChatter()
             {
                 if (guildAmbientThisTick >= 1)
                 {
-                    nextRandomChatTime[guid] = now + urand(g_MinRandomInterval, g_MaxRandomInterval);
+                    nextRandomChatTime[guid] = now + NextAmbientDelay();
                     continue;
                 }
                 if (Guild* botGuild = bot->GetGuild())
@@ -525,7 +595,7 @@ void BotChatRandom::HandleRandomChatter()
                     auto const it = g_LastGuildAmbientAt.find(guildId);
                     if (it != g_LastGuildAmbientAt.end() && difftime(now, it->second) < gap)
                     {
-                        nextRandomChatTime[guid] = now + urand(g_MinRandomInterval, g_MaxRandomInterval);
+                        nextRandomChatTime[guid] = now + NextAmbientDelay();
                         continue;
                     }
                     g_LastGuildAmbientAt[guildId] = now;
@@ -533,8 +603,39 @@ void BotChatRandom::HandleRandomChatter()
                 ++guildAmbientThisTick;
             }
 
+            if (!ambientThreadKey.empty() &&
+                !threadsSpokenThisTick.insert(ambientThreadKey).second)
+            {
+                nextRandomChatTime[guid] = now + NextAmbientDelay();
+                continue;
+            }
+
             if (!continueTopic)
                 MarkTopicOpened(ambientThreadKey);
+
+            if (continueTopic)
+            {
+                std::string last = ambient.lastLine;
+                if (last.empty())
+                    last = GetLastThreadText(ambientThreadKey);
+                std::string fallback = ambient.canned;
+                if (TryBotChatLlmContinue(bot, last, ambientSource, ambientChannel,
+                                          ambientThreadKey, fallback))
+                {
+                    nextRandomChatTime[guid] = now + NextAmbientDelay();
+                    continue;
+                }
+                nextRandomChatTime[guid] = now + NextAmbientDelay();
+                continue;
+            }
+
+            if (inGuild && ambient.seed == AmbientSeed::Life &&
+                TryBotChatLlmStart(bot, ambient.canned, SRC_GUILD_LOCAL, nullptr,
+                                   ambientThreadKey, ambient.canned))
+            {
+                nextRandomChatTime[guid] = now + NextAmbientDelay();
+                continue;
+            }
 
             std::vector<std::string> candidateComments;
             std::vector<std::string> guildComments;
@@ -1003,7 +1104,8 @@ void BotChatRandom::HandleRandomChatter()
                             continue;
                         if (PlayerbotsMgr::instance().GetPlayerbotAI(player))
                             continue;
-                        if (bot->GetDistance(player) <= g_SayDistance)
+                        if (bot->GetMapId() == player->GetMapId() &&
+                            bot->GetDistance(player) <= g_SayDistance)
                         {
                             realPlayerInSayDistance = true;
                             break;
@@ -1022,8 +1124,9 @@ void BotChatRandom::HandleRandomChatter()
                         if (PlayerbotsMgr::instance().GetPlayerbotAI(player))
                             continue;
                         // General channel is faction and zone specific
-                        if (player->GetTeamId() == bot->GetTeamId() && 
-                            player->GetZoneId() == bot->GetZoneId())
+                        if (player->GetTeamId() == bot->GetTeamId() &&
+                            player->GetMapId() == bot->GetMapId() &&
+                            LiveZoneId(player) == LiveZoneId(bot))
                         {
                             realPlayerInGeneral = true;
                             break;
@@ -1038,7 +1141,7 @@ void BotChatRandom::HandleRandomChatter()
             {
                 if (g_DebugEnabled)
                     LOG_INFO("server.loading", "[Bot Chat] Bot {} skipping random chatter (no real player can hear the message)", bot->GetName());
-                nextRandomChatTime[guid] = now + urand(g_MinRandomInterval, g_MaxRandomInterval);
+                nextRandomChatTime[guid] = now + NextAmbientDelay();
                 continue;
             }
 
@@ -1049,12 +1152,11 @@ void BotChatRandom::HandleRandomChatter()
 
             uint64_t botGuid = bot->GetGUID().GetRawValue();
             ChatChannelSourceLocal continueSource = continueTopic ? ambientSource : SRC_UNDEFINED_LOCAL;
-            std::string continueChannelName = (ambientChannel ? ambientChannel->GetName() : std::string());
             std::string cannedLine = ambient.canned;
             std::string threadKey = ambientThreadKey;
+            NoteSpokenLine(cannedLine);
 
-            std::thread([botGuid, prompt, cannedLine, threadKey, isGuildComment,
-                         continueSource, continueChannelName]() {
+            std::thread([botGuid, cannedLine, threadKey, isGuildComment, continueSource]() {
                 try {
                     Player* botPtr = ObjectAccessor::FindPlayer(ObjectGuid(botGuid));
                     if (!botPtr) return;
@@ -1073,21 +1175,13 @@ void BotChatRandom::HandleRandomChatter()
                     PlayerbotAI* botAI = PlayerbotsMgr::instance().GetPlayerbotAI(botPtr);
                     if (!botAI) return;
                     
-                    // Simulate typing delay if enabled
-                    if (g_EnableTypingSimulation)
-                    {
-                        uint32_t delay = g_TypingSimulationBaseDelay + (response.length() * g_TypingSimulationDelayPerChar);
-                        if (g_DebugEnabled)
-                            LOG_INFO("server.loading", "[BotChat] Bot simulating typing delay: {}ms for {} characters", 
-                                     delay, response.length());
-                        std::this_thread::sleep_for(std::chrono::milliseconds(delay));
-                        
-                        // Reacquire pointers after delay
-                        botPtr = ObjectAccessor::FindPlayer(ObjectGuid(botGuid));
-                        if (!botPtr) return;
-                        botAI = PlayerbotsMgr::instance().GetPlayerbotAI(botPtr);
-                        if (!botAI) return;
-                    }
+                    BotChatTypingSleep(response.length());
+                    botPtr = ObjectAccessor::FindPlayer(ObjectGuid(botGuid));
+                    if (!botPtr)
+                        return;
+                    botAI = PlayerbotsMgr::instance().GetPlayerbotAI(botPtr);
+                    if (!botAI)
+                        return;
                     
                     auto sendAndTrigger = [&](ChatChannelSourceLocal source, Channel* channel) {
                         ProcessBotChatMessage(botPtr, response, source, channel);
@@ -1114,11 +1208,10 @@ void BotChatRandom::HandleRandomChatter()
                         }
                         if (continueSource == SRC_GENERAL_LOCAL && !g_DisableForCustomChannels)
                         {
-                            Channel* generalChannel = nullptr;
-                            if (ChannelMgr* cMgr = ChannelMgr::forTeam(botPtr->GetTeamId()))
-                                generalChannel = cMgr->GetChannel(continueChannelName.empty() ? "General" : continueChannelName, botPtr);
-                            if (botAI->SayToChannel(response, ChatChannelId::GENERAL))
+                            Channel* generalChannel = FindZoneGeneral(botPtr);
+                            if (generalChannel && ChannelBelongsToBotZone(botPtr, generalChannel->GetName()))
                             {
+                                SendBotChannelLine(botPtr, generalChannel->GetName(), response);
                                 sendAndTrigger(SRC_GENERAL_LOCAL, generalChannel);
                                 return;
                             }
@@ -1201,7 +1294,8 @@ void BotChatRandom::HandleRandomChatter()
                                 if (PlayerbotsMgr::instance().GetPlayerbotAI(player))
                                     continue;
                                     
-                                if (botPtr->GetDistance(player) <= g_SayDistance)
+                                if (botPtr->GetMapId() == player->GetMapId() &&
+                                    botPtr->GetDistance(player) <= g_SayDistance)
                                 {
                                     realPlayerInSayDistance = true;
                                     break;
@@ -1224,8 +1318,9 @@ void BotChatRandom::HandleRandomChatter()
                                 if (PlayerbotsMgr::instance().GetPlayerbotAI(player))
                                     continue;
                                 // General channel is faction and zone specific
-                                if (player->GetTeamId() == botPtr->GetTeamId() && 
-                                    player->GetZoneId() == botPtr->GetZoneId())
+                                if (player->GetTeamId() == botPtr->GetTeamId() &&
+                                    player->GetMapId() == botPtr->GetMapId() &&
+                                    LiveZoneId(player) == LiveZoneId(botPtr))
                                 {
                                     realPlayerInGeneral = true;
                                     break;
@@ -1279,38 +1374,23 @@ void BotChatRandom::HandleRandomChatter()
                             botAI->Say(response);
                             ProcessBotChatMessage(botPtr, response, SRC_SAY_LOCAL, nullptr);
                         } else if (selectedChannel == "General") {
-                            if (g_DebugEnabled)
-                                LOG_INFO("server.loading", "[Bot Chat] Bot {} Random Chatter General: {}", botPtr->GetName(), response);
-                            
-                            Channel* generalChannel = FindPlayerChannel(botPtr, "General");
-                            
-                            // Use playerbots' SayToChannel method - it handles channel lookup internally
-                            bool sent = botAI->SayToChannel(response, ChatChannelId::GENERAL);
-                            if (g_DebugEnabled)
-                                LOG_INFO("server.loading", "[Bot Chat] Bot {} SayToChannel result: {}", botPtr->GetName(), sent ? "success" : "failed, using Say fallback");
-                            
-                            if (sent && generalChannel)
+                            Channel* generalChannel = FindZoneGeneral(botPtr);
+                            if (generalChannel && ChannelBelongsToBotZone(botPtr, generalChannel->GetName()))
                             {
+                                if (g_DebugEnabled)
+                                    LOG_INFO("server.loading", "[Bot Chat] Bot {} Random Chatter General '{}': {}",
+                                             botPtr->GetName(), generalChannel->GetName(), response);
+                                SendBotChannelLine(botPtr, generalChannel->GetName(), response);
                                 ProcessBotChatMessage(botPtr, response, SRC_GENERAL_LOCAL, generalChannel);
                             }
-                            else if (sent)
+                            else if (realPlayerInSayDistance)
                             {
-                                AppendChannelThread(MakeThreadKey(botPtr, SRC_GENERAL_LOCAL, generalChannel),
-                                    botPtr->GetName(), botPtr->GetGUID().GetRawValue(), true, response);
+                                botAI->Say(response);
+                                ProcessBotChatMessage(botPtr, response, SRC_SAY_LOCAL, nullptr);
                             }
-                            
-                            if (!sent)
+                            else if (g_DebugEnabled)
                             {
-                                // Fallback to Say if channel message failed (and real player is close enough)
-                                if (realPlayerInSayDistance)
-                                {
-                                    botAI->Say(response);
-                                    ProcessBotChatMessage(botPtr, response, SRC_SAY_LOCAL, nullptr);
-                                }
-                                else if (g_DebugEnabled)
-                                {
-                                    LOG_INFO("server.loading", "[Bot Chat] Bot {} cannot send to General and no real player in Say range, message lost", botPtr->GetName());
-                                }
+                                LOG_INFO("server.loading", "[Bot Chat] Bot {} cannot send to General and no real player in Say range, message lost", botPtr->GetName());
                             }
                         }
                     }
@@ -1322,6 +1402,6 @@ void BotChatRandom::HandleRandomChatter()
             }).detach();
 
 
-            nextRandomChatTime[guid] = now + urand(g_MinRandomInterval, g_MaxRandomInterval);
+            nextRandomChatTime[guid] = now + NextAmbientDelay();
     }
 }

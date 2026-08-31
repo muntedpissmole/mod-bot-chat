@@ -35,6 +35,7 @@ extern uint32_t   g_MaxBotsToPick;
 extern bool       g_EnableSocialConventions;
 extern uint32_t   g_SocialCueSeconds;
 extern uint32_t   g_RandomChatterBotCommentChance;
+extern bool        g_ScaleWithPopulation;
 extern uint32_t   g_RandomChatterMaxBotsPerPlayer;
 extern uint32_t   g_EventChatterBotCommentChance;
 extern uint32_t   g_EventChatterBotSelfCommentChance;
@@ -64,6 +65,8 @@ extern uint32_t    g_MaxConcurrentQueries;
 // Feature Toggles & Core Settings
 // --------------------------------------------
 extern bool        g_Enable;
+extern bool        g_EnableLLM;
+extern uint32_t    g_OllamaTimeout;
 extern bool        g_DisableRepliesInCombat;
 extern bool        g_EnableRandomChatter;
 extern bool        g_EnableEventChatter;
@@ -319,6 +322,7 @@ public:
     BotChatConfigWorldScript();
     void OnStartup() override;
     void OnShutdown() override;
+    void OnAfterConfigLoad(bool reload) override;
 };
 
 #endif // BOT_CHAT_CONFIG_H

@@ -36,6 +36,7 @@
 #include "bot_chat_thread.h"
 #include "bot_chat_knowledge.h"
 #include "bot_chat_social.h"
+#include "bot_chat_llm.h"
 #include <iomanip>
 #include "SpellMgr.h"
 #include "SpellInfo.h"
@@ -322,22 +323,18 @@ void ProcessBotChatMessage(Player* bot, const std::string& msg, ChatChannelSourc
     if (!bot || msg.empty())
         return;
         
-    // If channel is nullptr but this is a channel-type message, try to find the channel
+    // If channel is nullptr but this is a channel-type message, use this bot's live-zone General.
     if (!channel && sourceLocal == SRC_GENERAL_LOCAL)
     {
-        // Look up the General channel for this bot's faction
-        std::string channelName = "General";
-        ChannelMgr* cMgr = ChannelMgr::forTeam(bot->GetTeamId());
-        if (cMgr)
+        channel = FindZoneGeneral(bot);
+        if (g_DebugEnabled)
         {
-            channel = cMgr->GetChannel(channelName, bot);
-            if (g_DebugEnabled)
-            {
-                if (channel)
-                    LOG_INFO("server.loading", "[Bot Chat] ProcessBotChatMessage: Found General channel for bot {}", bot->GetName());
-                else
-                    LOG_ERROR("server.loading", "[Bot Chat] ProcessBotChatMessage: Could not find General channel for bot {}", bot->GetName());
-            }
+            if (channel)
+                LOG_INFO("server.loading", "[Bot Chat] ProcessBotChatMessage: Found General '{}' for bot {}",
+                         channel->GetName(), bot->GetName());
+            else
+                LOG_ERROR("server.loading", "[Bot Chat] ProcessBotChatMessage: Could not find zone General for bot {}",
+                          bot->GetName());
         }
     }
     
@@ -748,7 +745,7 @@ std::string ChatHandler_GetCombatSummary(Player* bot)
 }
 
 
-static std::string GenerateBotGameStateSnapshot(Player* bot)
+[[maybe_unused]] static std::string GenerateBotGameStateSnapshot(Player* bot)
 {
     // Prepare each section
     std::string combat = ChatHandler_GetCombatSummary(bot);
@@ -820,13 +817,45 @@ static std::string GenerateBotGameStateSnapshot(Player* bot)
     );
 }
 
+void SendBotChannelLine(Player* bot, std::string const& channelName, std::string const& line)
+{
+    if (!bot || channelName.empty() || line.empty())
+        return;
+    if (!ChannelBelongsToBotZone(bot, channelName))
+    {
+        if (g_DebugEnabled)
+            LOG_INFO("server.loading", "[Bot Chat] {} skipped '{}' (not live-zone General)",
+                     bot->GetName(), channelName);
+        return;
+    }
+    ChannelMgr* cMgr = ChannelMgr::forTeam(bot->GetTeamId());
+    if (!cMgr)
+        return;
+    Channel* channel = cMgr->GetChannel(channelName, bot, false);
+    if (!channel)
+        return;
+    if (!bot->IsInChannel(channel))
+        channel->JoinChannel(bot, "");
+    if (bot->IsInChannel(channel))
+        channel->Say(bot->GetGUID(), line, LANG_UNIVERSAL);
+}
+
 static void DeliverSocialReplies(std::vector<Player*> const& bots, Player* sender, std::string const& reply,
                                  ChatChannelSourceLocal sourceLocal, Channel* channel, SocialAct act = SocialAct::None)
 {
     if (!sender)
         return;
 
-    std::string const threadKey = MakeThreadKey(sender, sourceLocal, channel);
+    Player* peer = nullptr;
+    for (Player* bot : bots)
+    {
+        if (bot)
+        {
+            peer = bot;
+            break;
+        }
+    }
+    std::string const threadKey = MakeThreadKey(sender, sourceLocal, channel, peer);
     uint64 senderGuid = sender->GetGUID().GetRawValue();
     uint32 channelId = channel ? channel->GetChannelId() : 0;
     std::string channelName = channel ? channel->GetName() : "";
@@ -838,19 +867,22 @@ static void DeliverSocialReplies(std::vector<Player*> const& bots, Player* sende
         std::string line = reply;
         if (act != SocialAct::None)
             line = PickSocialReply(act, threadKey);
-        if (line.empty() || LineTooSimilarToRecent(threadKey, line))
+        if (line.empty())
             continue;
-        // Reserve this line so the next bot in the same batch does not copy it.
+        // PickSocialReply already reserved the line. A second LineRecentlySpoken
+        // check here dropped every hi/ty/gz because PickFrom just noted it.
+        if (act == SocialAct::None)
+        {
+            if (LineTooSimilarToRecent(threadKey, line) || LineRecentlySpoken(line))
+                continue;
+            NoteSpokenLine(line);
+        }
         AppendChannelThread(threadKey, bot->GetName(), bot->GetGUID().GetRawValue(), true, line);
         uint64 botGuid = bot->GetGUID().GetRawValue();
         std::thread([botGuid, senderGuid, line, sourceLocal, channelId, channelName]() {
             try
             {
-                if (g_EnableTypingSimulation)
-                {
-                    uint32 delay = g_TypingSimulationBaseDelay + (line.length() * g_TypingSimulationDelayPerChar);
-                    std::this_thread::sleep_for(std::chrono::milliseconds(delay));
-                }
+                BotChatTypingSleep(line.length());
 
                 Player* botPtr = ObjectAccessor::FindPlayer(ObjectGuid(botGuid));
                 if (!botPtr)
@@ -864,13 +896,10 @@ static void DeliverSocialReplies(std::vector<Player*> const& bots, Player* sende
 
                 if (channelId != 0 && !channelName.empty())
                 {
+                    SendBotChannelLine(botPtr, channelName, line);
                     ChannelMgr* cMgr = ChannelMgr::forTeam(botPtr->GetTeamId());
-                    Channel* targetChannel = cMgr ? cMgr->GetChannel(channelName, botPtr) : nullptr;
-                    if (targetChannel && botPtr->IsInChannel(targetChannel))
-                    {
-                        targetChannel->Say(botPtr->GetGUID(), line, LANG_UNIVERSAL);
-                        ProcessBotChatMessage(botPtr, line, SRC_GENERAL_LOCAL, targetChannel);
-                    }
+                    Channel* targetChannel = cMgr ? cMgr->GetChannel(channelName, botPtr, false) : nullptr;
+                    ProcessBotChatMessage(botPtr, line, SRC_GENERAL_LOCAL, targetChannel);
                     return;
                 }
 
@@ -912,6 +941,12 @@ static void DeliverSocialReplies(std::vector<Player*> const& bots, Player* sende
             }
         }).detach();
     }
+}
+
+void DeliverBotChatReply(std::vector<Player*> const& bots, Player* sender, std::string const& reply,
+                         ChatChannelSourceLocal sourceLocal, Channel* channel)
+{
+    DeliverSocialReplies(bots, sender, reply, sourceLocal, channel);
 }
 
 void BotChatHandler::ProcessChat(Player* player, uint32_t /*type*/, uint32_t lang, std::string& msg, ChatChannelSourceLocal sourceLocal, Channel* channel, Player* receiver)
@@ -1034,8 +1069,8 @@ void BotChatHandler::ProcessChat(Player* player, uint32_t /*type*/, uint32_t lan
     PlayerbotAI* senderAI = PlayerbotsMgr::instance().GetPlayerbotAI(player);
     bool senderIsBot = (senderAI && senderAI->IsBotAI());
 
-    std::string threadKey = MakeThreadKey(player, sourceLocal, channel);
-    if (g_EnableChannelThreads && sourceLocal != SRC_WHISPER_LOCAL)
+    std::string threadKey = MakeThreadKey(player, sourceLocal, channel, receiver);
+    if (g_EnableChannelThreads)
         AppendChannelThread(threadKey, player->GetName(), player->GetGUID().GetRawValue(), senderIsBot, msg);
 
     ChatQuery parsedQuery = ParseChatQuery(msg);
@@ -1127,60 +1162,40 @@ void BotChatHandler::ProcessChat(Player* player, uint32_t /*type*/, uint32_t lan
             if (!candidateAI || !candidateAI->IsBotAI())
                 continue;
             
-            // Check if this is a local or global channel
-            bool isLocalChannel = (channel->GetName().find("General -") != std::string::npos || 
-                                  channel->GetName().find("Trade -") != std::string::npos ||
-                                  channel->GetName().find("LocalDefense -") != std::string::npos);
-            
-            bool isGlobalChannel = (channel->GetName().find("World") != std::string::npos || channel->GetName().find("LookingForGroup") != std::string::npos);
-        
-            // For local channels, bot must be in same zone as player
+            std::string const chName = channel->GetName();
+            bool const isGeneral = chName.rfind("General", 0) == 0 || chName.find("General -") != std::string::npos;
+            bool const isTrade = chName.find("Trade") != std::string::npos;
+            bool const isLocalDef = chName.find("LocalDefense") != std::string::npos;
+            bool const isLocalChannel = isGeneral || isTrade || isLocalDef;
+            bool const isGlobalChannel = chName.find("World") != std::string::npos ||
+                                         chName.find("LookingForGroup") != std::string::npos;
+
+            if (isTrade)
+                continue;
+
             if (isLocalChannel)
             {
-                // ZONE CHECK: Bot must be in exact same zone as player
-                if (candidate->GetZoneId() != player->GetZoneId())
-                {
-                    if(g_DebugEnabled)
-                    {
-                        //LOG_ERROR("server.loading", "[Bot Chat] Bot {} FAILED zone check - Bot zone: {}, Player zone: {}, Channel: '{}'", candidate->GetName(), candidate->GetZoneId(), player->GetZoneId(), channel->GetName());
-                    }
-                    continue; // SKIP this bot - wrong zone
-                }
+                if (candidate->GetMapId() != player->GetMapId())
+                    continue;
+                uint32 botZone = candidate->GetMap()
+                    ? candidate->GetMap()->GetZoneId(candidate->GetPhaseMask(),
+                          candidate->GetPositionX(), candidate->GetPositionY(), candidate->GetPositionZ())
+                    : candidate->GetZoneId();
+                uint32 playerZone = player->GetMap()
+                    ? player->GetMap()->GetZoneId(player->GetPhaseMask(),
+                          player->GetPositionX(), player->GetPositionY(), player->GetPositionZ())
+                    : player->GetZoneId();
+                if (botZone != playerZone)
+                    continue;
             }
-            // For global channels like World, no zone restriction
-            
-            // CHANNEL MEMBERSHIP CHECK: Bot must actually be in the channel
-            if (!candidate->IsInChannel(channel))
-            {
-                if(g_DebugEnabled)
-                {
-                    //LOG_INFO("server.loading", "[Bot Chat] Bot {} not in channel '{}', skipping", candidate->GetName(), channel->GetName());
-                }
+
+            if (candidate->GetTeamId() != player->GetTeamId() && !isGlobalChannel)
                 continue;
-            }
-            
-            // FACTION CHECK: For non-global channels, ensure same faction
-            if (candidate->GetTeamId() != player->GetTeamId())
-            {
-                if (!isGlobalChannel)
-                {
-                    if(g_DebugEnabled)
-                    {
-                        //LOG_ERROR("server.loading", "[Bot Chat] Bot {} FAILED faction check - Bot: {}, Player: {}, Channel: '{}'", candidate->GetName(), (int)candidate->GetTeamId(), (int)player->GetTeamId(), channel->GetName());
-                    }
-                    continue; // SKIP this bot - wrong faction
-                }
-            }
-            
-            // CHANNEL MEMBERSHIP CHECK: Verify bot is actually in the channel
-            if (!candidate->IsInChannel(channel))
-            {
-                if(g_DebugEnabled)
-                {
-                    //LOG_ERROR("server.loading", "[Bot Chat] Bot {} FAILED channel membership check - Not in channel '{}'", candidate->GetName(), channel->GetName());
-                }
-                continue; // SKIP this bot - not in the channel
-            }
+
+            // General is zone chat. Bots often never JoinChannel, so membership
+            // is not required — they join on send. Custom channels still must match.
+            if (!isGeneral && !isLocalDef && !candidate->IsInChannel(channel))
+                continue;
             
             // REAL PLAYER CHECK: Channel must have at least one real player
             bool hasRealPlayerInChannel = false;
@@ -1359,27 +1374,27 @@ void BotChatHandler::ProcessChat(Player* player, uint32_t /*type*/, uint32_t lan
     if (sourceLocal == SRC_SAY_LOCAL || sourceLocal == SRC_YELL_LOCAL)
     {
         // Say/Yell channel type
-        chance = senderIsBot ? g_BotReplyChance_Say : g_PlayerReplyChance_Say;
+        chance = senderIsBot ? ScaleChatChance(g_BotReplyChance_Say) : g_PlayerReplyChance_Say;
     }
     else if (sourceLocal == SRC_PARTY_LOCAL || sourceLocal == SRC_RAID_LOCAL)
     {
         // Party/Raid channel type
-        chance = senderIsBot ? g_BotReplyChance_Party : g_PlayerReplyChance_Party;
+        chance = senderIsBot ? ScaleChatChance(g_BotReplyChance_Party) : g_PlayerReplyChance_Party;
     }
     else if (sourceLocal == SRC_GUILD_LOCAL || sourceLocal == SRC_OFFICER_LOCAL)
     {
         // Guild/Officer channel type
-        chance = senderIsBot ? g_BotReplyChance_Guild : g_PlayerReplyChance_Guild;
+        chance = senderIsBot ? ScaleChatChance(g_BotReplyChance_Guild) : g_PlayerReplyChance_Guild;
     }
     else if (sourceLocal == SRC_GENERAL_LOCAL)
     {
         // General/Trade/Custom channel type
-        chance = senderIsBot ? g_BotReplyChance_Channel : g_PlayerReplyChance_Channel;
+        chance = senderIsBot ? ScaleChatChance(g_BotReplyChance_Channel) : g_PlayerReplyChance_Channel;
     }
     else
     {
         // Default fallback (whispers, etc.) - use Say chances
-        chance = senderIsBot ? g_BotReplyChance_Say : g_PlayerReplyChance_Say;
+        chance = senderIsBot ? ScaleChatChance(g_BotReplyChance_Say) : g_PlayerReplyChance_Say;
     }
     
     if(g_DebugEnabled)
@@ -1389,21 +1404,37 @@ void BotChatHandler::ProcessChat(Player* player, uint32_t /*type*/, uint32_t lan
     }
     
     std::vector<Player*> finalCandidates;
-    
+
+    // Combat silence is for ambient and nearby strangers. A real player talking
+    // in party, guild, or whisper still gets an answer — that is the conversation.
+    bool const playerGroupTalk = !senderIsBot &&
+        (sourceLocal == SRC_PARTY_LOCAL || sourceLocal == SRC_RAID_LOCAL ||
+         sourceLocal == SRC_GUILD_LOCAL || sourceLocal == SRC_OFFICER_LOCAL ||
+         sourceLocal == SRC_WHISPER_LOCAL);
+    auto silentInCombat = [&](Player* bot) -> bool
+    {
+        if (!bot || !g_DisableRepliesInCombat || !bot->IsInCombat())
+            return false;
+        if (playerGroupTalk)
+            return false;
+        if (!senderIsBot && GetConversationBond(player->GetGUID().GetRawValue(), g_TopicIdleSeconds) ==
+            bot->GetGUID().GetRawValue())
+            return false;
+        if (!senderIsBot && player && bot->GetGroup() && player->GetGroup() &&
+            bot->GetGroup() == player->GetGroup())
+            return false;
+        return true;
+    };
+
     // For whispers, handle directly - there should only be one receiver bot
     if (sourceLocal == SRC_WHISPER_LOCAL)
     {
         if (!candidateBots.empty())
         {
             Player* whisperBot = candidateBots[0]; // Should only be one bot for whispers
-            if (!(g_DisableRepliesInCombat && whisperBot->IsInCombat()))
-            {
-                finalCandidates.push_back(whisperBot);
-                if(g_DebugEnabled)
-                {
-                    LOG_INFO("server.loading", "[Bot Chat] Whisper: Bot {} selected to respond", whisperBot->GetName());
-                }
-            }
+            finalCandidates.push_back(whisperBot);
+            if (g_DebugEnabled)
+                LOG_INFO("server.loading", "[Bot Chat] Whisper: Bot {} selected to respond", whisperBot->GetName());
         }
     }
     else
@@ -1450,11 +1481,11 @@ void BotChatHandler::ProcessChat(Player* player, uint32_t /*type*/, uint32_t lan
             {
                 continue;
             }
-            if (g_DisableRepliesInCombat && bot->IsInCombat())
+            if (silentInCombat(bot))
             {
                 continue;
             }
-            
+
             size_t pos = isBotNameMentioned(bot->GetName());
             if (pos != std::string::npos)
             {
@@ -1472,7 +1503,7 @@ void BotChatHandler::ProcessChat(Player* player, uint32_t /*type*/, uint32_t lan
             std::sort(mentionedBots.begin(), mentionedBots.end(),
                       [](const std::pair<size_t, Player*> &a, const std::pair<size_t, Player*> &b) { return a.first < b.first; });
             Player* chosen = mentionedBots.front().second;
-            if (!(g_DisableRepliesInCombat && chosen->IsInCombat()))
+            if (!silentInCombat(chosen))
             {
                 finalCandidates.push_back(chosen);
                 if(g_DebugEnabled)
@@ -1496,6 +1527,26 @@ void BotChatHandler::ProcessChat(Player* player, uint32_t /*type*/, uint32_t lan
 
             if (!senderIsBot && finalCandidates.empty())
             {
+                uint64_t bonded = GetConversationBond(player->GetGUID().GetRawValue(), g_TopicIdleSeconds);
+                if (bonded)
+                {
+                    for (Player* bot : candidateBots)
+                    {
+                        if (!bot || bot->GetGUID().GetRawValue() != bonded)
+                            continue;
+                        if (silentInCombat(bot))
+                            break;
+                        finalCandidates.push_back(bot);
+                        if (g_DebugEnabled)
+                            LOG_INFO("server.loading", "[Bot Chat] Sticking with conversation partner {}",
+                                     bot->GetName());
+                        break;
+                    }
+                }
+            }
+
+            if (!senderIsBot && finalCandidates.empty())
+            {
                 uint64_t lastBot = GetLastBotSpeaker(threadKey);
                 if (lastBot)
                 {
@@ -1503,11 +1554,29 @@ void BotChatHandler::ProcessChat(Player* player, uint32_t /*type*/, uint32_t lan
                     {
                         if (!bot || bot->GetGUID().GetRawValue() != lastBot)
                             continue;
-                        if (g_DisableRepliesInCombat && bot->IsInCombat())
+                        if (silentInCombat(bot))
                             break;
                         finalCandidates.push_back(bot);
                         if (g_DebugEnabled)
                             LOG_INFO("server.loading", "[Bot Chat] Sticking with last speaker {}", bot->GetName());
+                        break;
+                    }
+                }
+            }
+
+            if (!senderIsBot && finalCandidates.empty())
+            {
+                uint64_t sharedBot = FindRecentSharedBotSpeaker(player, candidateBots, g_TopicIdleSeconds);
+                if (sharedBot)
+                {
+                    for (Player* bot : candidateBots)
+                    {
+                        if (!bot || bot->GetGUID().GetRawValue() != sharedBot)
+                            continue;
+                        finalCandidates.push_back(bot);
+                        if (g_DebugEnabled)
+                            LOG_INFO("server.loading", "[Bot Chat] Sticking with shared-thread speaker {}",
+                                     bot->GetName());
                         break;
                     }
                 }
@@ -1519,7 +1588,7 @@ void BotChatHandler::ProcessChat(Player* player, uint32_t /*type*/, uint32_t lan
                 std::vector<std::pair<int, Player*>> failed;
                 for (Player* bot : candidateBots)
                 {
-                    if (g_DisableRepliesInCombat && bot->IsInCombat())
+                    if (silentInCombat(bot))
                     {
                         if(g_DebugEnabled)
                         {
@@ -1533,6 +1602,9 @@ void BotChatHandler::ProcessChat(Player* player, uint32_t /*type*/, uint32_t lan
                     bool recent = g_PreferThreadRegulars && IsRecentSpeaker(threadKey, bot->GetGUID().GetRawValue());
                     if (isGuild && ThreadIsActive(threadKey, g_TopicIdleSeconds) && !recent && urand(0, 99) < 80)
                         continue;
+                    if (GetConversationBond(player->GetGUID().GetRawValue(), g_TopicIdleSeconds) ==
+                        bot->GetGUID().GetRawValue())
+                        score += 6;
                     if (recent)
                         score += isGuild ? 5 : 3;
                     if (bot->GetZoneId() == player->GetZoneId())
@@ -1588,16 +1660,18 @@ void BotChatHandler::ProcessChat(Player* player, uint32_t /*type*/, uint32_t lan
     
     if (finalCandidates.empty())
     {
-        if (!senderIsBot && !eligibleBots.empty() &&
-            (sourceLocal == SRC_SAY_LOCAL || sourceLocal == SRC_WHISPER_LOCAL))
+        bool const playerSay = !senderIsBot &&
+            (sourceLocal == SRC_SAY_LOCAL || sourceLocal == SRC_WHISPER_LOCAL);
+        std::vector<Player*> const& stickyPool = playerGroupTalk ? candidateBots : eligibleBots;
+        if ((playerSay || playerGroupTalk) && !stickyPool.empty())
         {
             Player* closest = nullptr;
             float best = 99999.0f;
-            for (Player* bot : eligibleBots)
+            for (Player* bot : stickyPool)
             {
                 if (!bot)
                     continue;
-                if (g_DisableRepliesInCombat && bot->IsInCombat())
+                if (silentInCombat(bot))
                     continue;
                 float d = player->GetDistance(bot);
                 if (!closest || d < best)
@@ -1652,6 +1726,9 @@ void BotChatHandler::ProcessChat(Player* player, uint32_t /*type*/, uint32_t lan
                 ChatChannelSourceLocalStr[sourceLocal], botNames);
     }
 
+    if (!senderIsBot && !finalCandidates.empty() && finalCandidates.front())
+        NoteConversationBond(player->GetGUID().GetRawValue(), finalCandidates.front()->GetGUID().GetRawValue());
+
     if (g_EnableSocialConventions)
     {
         SocialAct socialAct = DetectSocialAct(msg);
@@ -1660,7 +1737,8 @@ void BotChatHandler::ProcessChat(Player* player, uint32_t /*type*/, uint32_t lan
                       socialAct == SocialAct::GoodLuck || socialAct == SocialAct::GoodGame ||
                       socialAct == SocialAct::Condolence || socialAct == SocialAct::Apology ||
                       socialAct == SocialAct::Back || socialAct == SocialAct::Brb ||
-                      socialAct == SocialAct::Greeting || socialAct == SocialAct::Reaction;
+                      socialAct == SocialAct::Greeting || socialAct == SocialAct::Reaction ||
+                      socialAct == SocialAct::Farewell;
         if (socialAct != SocialAct::None && ritual)
         {
             // Don't let canned ty/np chain off another bot's canned line.
@@ -1712,40 +1790,18 @@ void BotChatHandler::ProcessChat(Player* player, uint32_t /*type*/, uint32_t lan
 
     if (g_EnableSocialConventions && parsedQuery.topic == ChatTopic::LookingForGroup && !finalCandidates.empty())
     {
-        // General must not continue other bots' LFG threads.
-        if (senderIsBot && sourceLocal == SRC_GENERAL_LOCAL)
+        // Bot-to-bot LFG is ambient continue, not a canned "gl"/"what for".
+        if (senderIsBot)
             return;
         std::string const lfgKey = MakeThreadKey(player, sourceLocal, channel);
         bool const inParty = (sourceLocal == SRC_PARTY_LOCAL || sourceLocal == SRC_RAID_LOCAL);
-        std::string line = PickGroupReply(lfgKey, inParty);
+        std::string line = PickGroupReply(lfgKey, inParty, finalCandidates.front());
         if (!line.empty())
         {
             if (g_DebugEnabled)
                 LOG_INFO("server.loading", "[Bot Chat] Group talk -> {} : {}", finalCandidates.front()->GetName(), line);
             DeliverSocialReplies({ finalCandidates.front() }, player, line, sourceLocal, channel);
         }
-        return;
-    }
-
-    if (!senderIsBot && IsDismissal(msg))
-    {
-        if (g_DebugEnabled)
-            LOG_INFO("server.loading", "[Bot Chat] Dismissal from {}, staying quiet", player->GetName());
-        return;
-    }
-
-    // Bare "what" / "??" is not "what u want". If they are still on a help
-    // question, fall through to the knowledge path. Otherwise stay quiet.
-    if (!senderIsBot && IsShortFollowUp(msg) && GetLastPlayerHelpQuery(threadKey).empty())
-    {
-        if (urand(0, 99) < 80 || finalCandidates.empty())
-            return;
-        std::string line = PickFollowUpReply(threadKey);
-        if (line.empty())
-            return;
-        if (g_DebugEnabled)
-            LOG_INFO("server.loading", "[Bot Chat] Follow-up from {} -> {}", player->GetName(), line);
-        DeliverSocialReplies({ finalCandidates.front() }, player, line, sourceLocal, channel);
         return;
     }
 
@@ -1765,25 +1821,83 @@ void BotChatHandler::ProcessChat(Player* player, uint32_t /*type*/, uint32_t lan
         return;
     }
 
-    // Help questions use live taxi/NPC data, not the 3b model. "what u mean"
-    // reuses the last player help query. Anything else already returned above.
-    if (chatIntent != ChatIntent::HelpRequest && parsedQuery.topic != ChatTopic::FollowUp)
-        return;
-    if (finalCandidates.empty())
+    // Help facts stay canned from taxi/NPC data. "what u mean" after a real
+    // help ask reuses that. Conversational "what"/"huh"/"where" with no prior
+    // help query is a thread continue — do not swallow it.
+    if (chatIntent == ChatIntent::HelpRequest || parsedQuery.topic == ChatTopic::FollowUp)
+    {
+        if (finalCandidates.empty())
+            return;
+
+        std::vector<std::string> contextKeys;
+        contextKeys.push_back(threadKey);
+        if (!finalCandidates.empty() && finalCandidates.front())
+        {
+            for (std::string const& key : SharedThreadKeys(player, finalCandidates.front()))
+            {
+                if (std::find(contextKeys.begin(), contextKeys.end(), key) == contextKeys.end())
+                    contextKeys.push_back(key);
+            }
+        }
+
+        std::string helpQuery = (parsedQuery.topic == ChatTopic::FollowUp)
+            ? GetLastPlayerHelpQueryAmong(contextKeys)
+            : msg;
+        if (parsedQuery.topic == ChatTopic::FollowUp && !helpQuery.empty())
+        {
+            std::string const lastPlayer = GetLastPlayerMessageExceptAmong(contextKeys, msg);
+            if (ClassifyChatIntent(lastPlayer) != ChatIntent::HelpRequest)
+                helpQuery.clear();
+        }
+
+        if (!helpQuery.empty())
+        {
+            std::string line = PickKnowledgeReply(player, helpQuery);
+            if (!line.empty() && !LineTooSimilarToRecent(threadKey, line))
+            {
+                if (g_DebugEnabled)
+                    LOG_INFO("server.loading", "[Bot Chat] Knowledge reply -> {} : {}",
+                             finalCandidates.front()->GetName(), line);
+                DeliverSocialReplies({ finalCandidates.front() }, player, line, sourceLocal, channel);
+                return;
+            }
+            // Real help question (or follow-up to one) with nothing fresh.
+            // Stay quiet rather than invent a location.
+            return;
+        }
+        if (chatIntent == ChatIntent::HelpRequest)
+            return;
+        if (g_DebugEnabled)
+            LOG_INFO("server.loading", "[Bot Chat] Conversational follow-up from {}, using LLM",
+                     player->GetName());
+    }
+
+    if (senderIsBot || finalCandidates.empty())
         return;
 
-    std::string helpQuery = msg;
-    if (parsedQuery.topic == ChatTopic::FollowUp)
-        helpQuery = GetLastPlayerHelpQuery(threadKey);
-    if (helpQuery.empty())
-        return;
+    ChatTone const tone = DetectChatTone(msg);
+    std::string fallback;
+    if (tone == ChatTone::Hostile || tone == ChatTone::Dismissive)
+        fallback = PickHostileReply(threadKey, msg);
+    else if (IsShortFollowUp(msg))
+        fallback = PickFollowUpReply(threadKey);
 
-    std::string line = PickKnowledgeReply(player, helpQuery);
-    if (line.empty() || LineTooSimilarToRecent(threadKey, line))
+    uint32 const playerLines = CountRecentPlayerLines(threadKey);
+    bool const looping = ThreadLooksLooped(threadKey) || playerLines >= 8 ||
+                         (playerLines >= 6 && urand(0, 99) < 50);
+    if (looping && tone == ChatTone::Neutral)
+    {
+        std::string closer = PickCloserReply(threadKey);
+        if (closer.empty())
+            return;
+        if (g_DebugEnabled)
+            LOG_INFO("server.loading", "[Bot Chat] Closing looping thread -> {} : {}",
+                     finalCandidates.front()->GetName(), closer);
+        DeliverSocialReplies({ finalCandidates.front() }, player, closer, sourceLocal, channel);
         return;
-    if (g_DebugEnabled)
-        LOG_INFO("server.loading", "[Bot Chat] Knowledge reply -> {} : {}", finalCandidates.front()->GetName(), line);
-    DeliverSocialReplies({ finalCandidates.front() }, player, line, sourceLocal, channel);
+    }
+
+    TryBotChatLlmReply(finalCandidates, player, msg, tone, sourceLocal, channel, fallback);
 }
 
 #if 0

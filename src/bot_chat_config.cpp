@@ -36,6 +36,7 @@ uint32_t   g_MaxBotsToPick     = 2;
 bool       g_EnableSocialConventions = true;
 uint32_t   g_SocialCueSeconds  = 45;
 uint32_t   g_RandomChatterBotCommentChance   = 18;
+bool        g_ScaleWithPopulation            = true;
 uint32_t   g_RandomChatterMaxBotsPerPlayer   = 2;
 uint32_t   g_EventChatterBotCommentChance    = 15;
 uint32_t   g_EventChatterBotSelfCommentChance = 5;
@@ -44,10 +45,11 @@ uint32_t   g_EventChatterMaxBotsPerPlayer    = 2;
 // --------------------------------------------
 // Ollama LLM API Configuration
 // --------------------------------------------
-std::string g_OllamaUrl        = "http://localhost:11434/api/generate";
-std::string g_OllamaModel      = "llama3.2:1b";
-uint32_t    g_OllamaNumPredict = 40;
-float       g_OllamaTemperature = 0.8f;
+std::string g_OllamaUrl        = "http://127.0.0.1:11434/api/generate";
+std::string g_OllamaModel      = "llama3.1:8b";
+uint32_t    g_OllamaNumPredict = 64;
+float       g_OllamaTemperature = 0.95f;
+uint32_t    g_OllamaTimeout    = 15;
 float       g_OllamaTopP = 0.95f;
 float       g_OllamaRepeatPenalty = 1.1f;
 uint32_t    g_OllamaNumCtx = 0;
@@ -59,17 +61,18 @@ std::string g_OllamaSeed = "";
 // --------------------------------------------
 // Concurrency/Queueing
 // --------------------------------------------
-uint32_t    g_MaxConcurrentQueries = 0;
+uint32_t    g_MaxConcurrentQueries = 1;
 
 // --------------------------------------------
 // Feature Toggles & Core Settings
 // --------------------------------------------
 bool        g_Enable                          = true;
+bool        g_EnableLLM                       = true;
 bool        g_DisableRepliesInCombat          = true;
 bool        g_EnableRandomChatter             = true;
 bool        g_EnableEventChatter              = true;
 bool        g_EnableRPPersonalities           = false;
-bool        g_EnableWhisperReplies            = false;
+bool        g_EnableWhisperReplies            = true;
 bool        g_DebugEnabled                    = false;
 bool        g_DebugShowFullPrompt             = false;
 
@@ -163,7 +166,7 @@ BotChatRAGSystem* g_RAGSystem = nullptr;
 bool        g_EnableChannelThreads = true;
 uint32_t    g_ChannelThreadMaxLines = 24;
 uint32_t    g_TopicIdleSeconds = 180;
-uint32_t    g_ContinueTopicChance = 85;
+uint32_t    g_ContinueTopicChance = 40;
 bool        g_PreferThreadRegulars = true;
 std::string g_ChannelThreadHeaderTemplate;
 std::string g_ChannelThreadLineTemplate;
@@ -414,10 +417,11 @@ void LoadBotChatConfig()
     g_MaxBotsToPick                   = sConfigMgr->GetOption<uint32_t>("BotChat.MaxBotsToPick", 1);
     g_EnableSocialConventions         = sConfigMgr->GetOption<bool>("BotChat.EnableSocialConventions", true);
     g_SocialCueSeconds                = sConfigMgr->GetOption<uint32_t>("BotChat.SocialCueSeconds", 45);
-    g_OllamaUrl                       = sConfigMgr->GetOption<std::string>("BotChat.Url", "http://localhost:11434/api/generate");
-    g_OllamaModel                     = sConfigMgr->GetOption<std::string>("BotChat.Model", "llama3.2:1b");
-    g_OllamaNumPredict                = sConfigMgr->GetOption<uint32_t>("BotChat.NumPredict", 80);
-    g_OllamaTemperature               = sConfigMgr->GetOption<float>("BotChat.Temperature", 0.8f);
+    g_OllamaUrl                       = sConfigMgr->GetOption<std::string>("BotChat.Url", "http://127.0.0.1:11434/api/generate");
+    g_OllamaModel                     = sConfigMgr->GetOption<std::string>("BotChat.Model", "llama3.1:8b");
+    g_OllamaNumPredict                = sConfigMgr->GetOption<uint32_t>("BotChat.NumPredict", 64);
+    g_OllamaTemperature               = sConfigMgr->GetOption<float>("BotChat.Temperature", 0.95f);
+    g_OllamaTimeout                   = sConfigMgr->GetOption<uint32_t>("BotChat.LLMTimeout", 15);
     g_OllamaTopP                      = sConfigMgr->GetOption<float>("BotChat.TopP", 0.95f);
     g_OllamaRepeatPenalty             = sConfigMgr->GetOption<float>("BotChat.RepeatPenalty", 1.1f);
     g_OllamaNumCtx                    = sConfigMgr->GetOption<uint32_t>("BotChat.NumCtx", 0);
@@ -426,13 +430,14 @@ void LoadBotChatConfig()
     g_OllamaSystemPrompt              = sConfigMgr->GetOption<std::string>("BotChat.SystemPrompt", "");
     g_OllamaSeed                      = sConfigMgr->GetOption<std::string>("BotChat.Seed", "");
 
-    g_MaxConcurrentQueries            = sConfigMgr->GetOption<uint32_t>("BotChat.MaxConcurrentQueries", 0);
+    g_MaxConcurrentQueries            = sConfigMgr->GetOption<uint32_t>("BotChat.MaxConcurrentQueries", 1);
 
     g_Enable                          = sConfigMgr->GetOption<bool>("BotChat.Enable", true);
+    g_EnableLLM                       = sConfigMgr->GetOption<bool>("BotChat.EnableLLM", true);
     g_DisableRepliesInCombat          = sConfigMgr->GetOption<bool>("BotChat.DisableRepliesInCombat", true);
     g_EnableRandomChatter             = sConfigMgr->GetOption<bool>("BotChat.EnableRandomChatter", true);
     g_EnableEventChatter              = sConfigMgr->GetOption<bool>("BotChat.EnableEventChatter", true);
-    g_EnableWhisperReplies            = sConfigMgr->GetOption<bool>("BotChat.EnableWhisperReplies", false);
+    g_EnableWhisperReplies            = sConfigMgr->GetOption<bool>("BotChat.EnableWhisperReplies", true);
 
     g_DebugEnabled                    = sConfigMgr->GetOption<bool>("BotChat.DebugEnabled", false);
     g_DebugShowFullPrompt             = sConfigMgr->GetOption<bool>("BotChat.DebugShowFullPrompt", false);
@@ -525,7 +530,8 @@ void LoadBotChatConfig()
     g_EnableChannelThreads            = sConfigMgr->GetOption<bool>("BotChat.EnableChannelThreads", true);
     g_ChannelThreadMaxLines           = sConfigMgr->GetOption<uint32_t>("BotChat.ChannelThreadMaxLines", 24);
     g_TopicIdleSeconds                = sConfigMgr->GetOption<uint32_t>("BotChat.TopicIdleSeconds", 180);
-    g_ContinueTopicChance             = sConfigMgr->GetOption<uint32_t>("BotChat.ContinueTopicChance", 85);
+    g_ContinueTopicChance             = sConfigMgr->GetOption<uint32_t>("BotChat.ContinueTopicChance", 40);
+    g_ScaleWithPopulation             = sConfigMgr->GetOption<bool>("BotChat.ScaleWithPopulation", true);
     g_PreferThreadRegulars            = sConfigMgr->GetOption<bool>("BotChat.PreferThreadRegulars", true);
     g_ChannelThreadHeaderTemplate     = sConfigMgr->GetOption<std::string>("BotChat.ChannelThreadHeaderTemplate", "RECENT CHANNEL CHAT (continue this conversation, do not greet or start a new topic):\n");
     g_ChannelThreadLineTemplate       = sConfigMgr->GetOption<std::string>("BotChat.ChannelThreadLineTemplate", "[{speaker}]: {message}\n");
@@ -678,11 +684,11 @@ void LoadBotChatConfig()
     g_DisableForParty = sConfigMgr->GetOption<bool>("BotChat.DisableForParty", false);
 
     LOG_INFO("server.loading",
-             "[Bot Chat] Config loaded: Enabled = {}, SayDistance = {}, YellDistance = {}, "
+             "[Bot Chat] Config loaded: Enabled = {}, LLM = {}, SayDistance = {}, YellDistance = {}, "
              "Reply Chances - Say: P{}%/B{}%, Channel: P{}%/B{}%, Party: P{}%/B{}%, Guild: P{}%/B{}%, MaxBotsToPick = {}, "
              "Url = {}, Model = {}, MaxConcurrentQueries = {}, EnableRandomChatter = {}, MinRandInt = {}, MaxRandInt = {}, RandomChatterRealPlayerDistance = {}, "
              "RandomChatterBotCommentChance = {}. MaxConcurrentQueries = {}. Extra blacklist commands: {}",
-             g_Enable, g_SayDistance, g_YellDistance,
+             g_Enable, g_EnableLLM, g_SayDistance, g_YellDistance,
              g_PlayerReplyChance_Say, g_BotReplyChance_Say,
              g_PlayerReplyChance_Channel, g_BotReplyChance_Channel,
              g_PlayerReplyChance_Party, g_BotReplyChance_Party,
@@ -756,14 +762,27 @@ void LoadBotConversationHistoryFromDB()
 
 
 // Definition of the configuration WorldScript.
-BotChatConfigWorldScript::BotChatConfigWorldScript() : WorldScript("BotChatConfigWorldScript") { }
+BotChatConfigWorldScript::BotChatConfigWorldScript() : WorldScript("BotChatConfigWorldScript", {
+    WORLDHOOK_ON_STARTUP,
+    WORLDHOOK_ON_SHUTDOWN,
+    WORLDHOOK_ON_AFTER_CONFIG_LOAD
+}) { }
+
+void BotChatConfigWorldScript::OnAfterConfigLoad(bool reload)
+{
+    if (reload)
+        LoadBotChatConfig();
+}
 
 void BotChatConfigWorldScript::OnStartup()
 {
     LoadBotChatConfig();
     if (g_EnableGameKnowledge)
         InitializeGameKnowledge();
-    LOG_INFO("server.loading", "[Bot Chat] Engine ready (no LLM).");
+    if (g_EnableLLM)
+        LOG_INFO("server.loading", "[Bot Chat] Engine ready. LLM wording layer: {} at {}", g_OllamaModel, g_OllamaUrl);
+    else
+        LOG_INFO("server.loading", "[Bot Chat] Engine ready (canned only).");
 }
 
 void BotChatConfigWorldScript::OnShutdown()

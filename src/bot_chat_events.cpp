@@ -296,7 +296,7 @@ void BotChatEvents::QueueEvent(Player* bot, std::string type, std::string detail
 
     uint64_t botGuid = bot->GetGUID().GetRawValue();
 
-    std::thread([this, botGuid, type, detail, actorName, isGuildEvent]()
+    std::thread([botGuid, type, detail, actorName, isGuildEvent]()
     {
         try
         {
@@ -352,21 +352,13 @@ void BotChatEvents::QueueEvent(Player* bot, std::string type, std::string detail
             PlayerbotAI* botAI = PlayerbotsMgr::instance().GetPlayerbotAI(botPtr);
             if (!botAI) return;
 
-            // Simulate typing delay if enabled
-            if (g_EnableTypingSimulation)
-            {
-                uint32_t delay = g_TypingSimulationBaseDelay + (response.length() * g_TypingSimulationDelayPerChar);
-                if (g_DebugEnabled)
-                    LOG_INFO("server.loading", "[BotChat] Bot {} simulating typing delay: {}ms for {} characters", 
-                             botPtr->GetName(), delay, response.length());
-                std::this_thread::sleep_for(std::chrono::milliseconds(delay));
-                
-                // Reacquire pointers after delay
-                botPtr = ObjectAccessor::FindPlayer(ObjectGuid(botGuid));
-                if (!botPtr) return;
-                botAI = PlayerbotsMgr::instance().GetPlayerbotAI(botPtr);
-                if (!botAI) return;
-            }
+            BotChatTypingSleep(response.length());
+            botPtr = ObjectAccessor::FindPlayer(ObjectGuid(botGuid));
+            if (!botPtr)
+                return;
+            botAI = PlayerbotsMgr::instance().GetPlayerbotAI(botPtr);
+            if (!botAI)
+                return;
 
             // Route response to random appropriate channel
             if (isGuildEvent && botPtr->GetGuild())

@@ -4,11 +4,11 @@
 
 A module for the [Playerbots AzerothCore fork](https://github.com/mod-playerbots/azerothcore-wotlk/tree/Playerbot) and [mod-playerbots](https://github.com/mod-playerbots/mod-playerbots).
 
-Makes playerbots talk in Say, General, Party, and Guild like people on a Wrath private server. `gz` / `ty` / `wb` / `pst`, quest and flight-path answers from live game data, and ambient lines filled from the bot's zone, quest log, class, and dungeon. There is no Ollama and no LLM.
+Makes playerbots talk in Say, General, Party, and Guild like a Wrath private-server room: overlapping lines, in-game asks, occasional watercooler, continuing conversations, tone matching (including swearing and slurs when the player goes there first), and no repeated canned lines. `gz` / `ty` / `wb` / `pst` and flight-path answers come from the engine (live game data). When a real player talks — roast, banter, leftover chat — a local Ollama model writes one short line using the recent thread. Ambient General stays canned and realm-unique. Chatter volume follows `mod-circadian-bots` population. Do not use `llama3.2:3b`.
 
 Trade ads (`WTS` / `LFM`) are [mod-trade-chat](https://github.com/muntedpissmole/mod-trade-chat). Pass-by `/hi` is [mod-well-met](https://github.com/muntedpissmole/mod-well-met). Do not run this next to [mod-ollama-chat](https://github.com/DustinHendrickson/mod-ollama-chat); they both hook chat.
 
-Combat silence is on by default. Questie party announces and playerbot commands are ignored. Trade (`/2`) is treated as a board, not a conversation.
+Combat silence is on by default. Questie party announces and playerbot commands are ignored. Trade (`/2`) is treated as a board, not a conversation. Help answers never come from the model.
 
 ## Installation
 
@@ -18,12 +18,14 @@ Combat silence is on by default. Questie party announces and playerbot commands 
 3. Enable mod in the conf and restart worldserver
 ```
 
-If you still have `mod-ollama-chat` in `modules/`, disable it (`OllamaChat.Enable = 0`, or `-DDISABLED_AC_MODULES=mod-ollama-chat`).
+If you still have `mod-ollama-chat` in `modules/`, disable it (`-DMODULE_MOD-OLLAMA-CHAT=disabled`). Pull `llama3.1:8b` (or another 7B/8B) in Ollama on the game box.
 
 ## Module Configuration
 
 ```
 BotChat.Enable = 1
+BotChat.EnableLLM = 1
+BotChat.Model = llama3.1:8b
 BotChat.EnableRandomChatter = 1
 BotChat.RandomChatterBotCommentChance = 18
 BotChat.EnableGuildRandomAmbientChatter = 1
@@ -36,6 +38,8 @@ BotChat.DisableRepliesInCombat = 1
 | Option | Function |
 | --- | --- |
 | `BotChat.Enable` | Turns the module on or off. |
+| `BotChat.EnableLLM` | Local Ollama writes roast/banter lines when a real player spoke. Off = canned only. |
+| `BotChat.Model` | Ollama model. Use 7B/8B. `llama3.2:3b` paraphrases and invents places. |
 | `BotChat.EnableRandomChatter` | Ambient lines in General / Say / Guild when a real player can hear them. |
 | `BotChat.RandomChatterBotCommentChance` | Percent chance a due bot posts ambient in General/Say. |
 | `BotChat.MinRandomInterval` / `MaxRandomInterval` | Seconds between a given bot's ambient attempts. |
@@ -43,10 +47,12 @@ BotChat.DisableRepliesInCombat = 1
 | `BotChat.GuildRandomChatterChance` | Percent chance for guild ambient (not stacked on the General chance). |
 | `BotChat.ContinueTopicChance` | Percent chance ambient continues the current channel thread instead of a new topic. |
 | `BotChat.TopicIdleSeconds` | Seconds before a thread is stale and a new topic may start. |
+| `BotChat.ScaleWithPopulation` | Ambient chance/interval follow random-bot online count (circadian pop). Player replies stay the same. |
 | `BotChat.EnableSocialConventions` | Canned `gz`/`ty`/`wb`/`pst` and activity replies instead of free text. |
 | `BotChat.EnableGameKnowledge` | Answer `where fp` / `how do I get to X` from live taxis, NPCs, and quests. |
 | `BotChat.EnableEventChatter` | Canned `gz`/`rip`/`gg` on dings, deaths, duels. Not dumped into General. |
-| `BotChat.DisableRepliesInCombat` | Do not reply while the bot is in combat. |
+| `BotChat.DisableRepliesInCombat` | Do not reply while the bot is in combat. Player `/g` `/p` `/w` still get an answer. |
+| `BotChat.EnableWhisperReplies` | Answer real-player whispers. Uses guild/party/say context so `/w what` after `/g` stays on topic. |
 | `BotChat.DisableForCustomChannels` | Silence General (and other custom channels). |
 | `BotChat.DisableForSayYell` | Silence Say/Yell. |
 | `BotChat.DisableForGuild` | Silence Guild/Officer. |

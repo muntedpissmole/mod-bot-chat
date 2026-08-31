@@ -1214,7 +1214,10 @@ namespace
             return true;
         if (lower.find("need a tank") != std::string::npos || lower.find("need tank") != std::string::npos ||
             lower.find("need a heal") != std::string::npos || lower.find("need heal") != std::string::npos ||
-            lower.find("need dps") != std::string::npos || lower.find("need a dps") != std::string::npos)
+            lower.find("need dps") != std::string::npos || lower.find("need a dps") != std::string::npos ||
+            lower.find("lf tank") != std::string::npos || lower.find("any tank") != std::string::npos ||
+            lower.find("any tanks") != std::string::npos || lower.find("need pala") != std::string::npos ||
+            lower.find("need paladin") != std::string::npos || lower.find("lf heal") != std::string::npos)
             return true;
         if (lower.find("anyone want") != std::string::npos || lower.find("anyone wanna") != std::string::npos ||
             lower.find("anyone for") != std::string::npos || lower.find("anyone up") != std::string::npos ||
@@ -1456,6 +1459,13 @@ std::string DescribeBotPlace(Player* bot)
             std::string name = map->GetMapName();
             return name.empty() ? "a dungeon" : name;
         }
+        uint32 const zoneId = map->GetZoneId(bot->GetPhaseMask(),
+            bot->GetPositionX(), bot->GetPositionY(), bot->GetPositionZ());
+        if (AreaTableEntry const* zone = sAreaTableStore.LookupEntry(zoneId))
+        {
+            if (zone->area_name[0] && zone->area_name[0][0])
+                return zone->area_name[0];
+        }
     }
     if (AreaTableEntry const* zone = sAreaTableStore.LookupEntry(bot->GetZoneId()))
     {
@@ -1483,9 +1493,7 @@ std::string LookupGameKnowledge(Player* asker, const std::string& message)
     auto tokens = Tokenize(parsed.entity.empty() ? message : parsed.entity, true);
 
     if (parsed.topic == ChatTopic::LookingForGroup)
-    {
-        return "This is looking-for-group chat. Reply like a player: say if you can join, ask which quest or dungeon, or say you are busy. Do not invent lockouts or raid times.";
-    }
+        return "";
     if (parsed.topic == ChatTopic::Trade || parsed.topic == ChatTopic::Social)
         return "";
     if (parsed.topic == ChatTopic::FollowUp)
