@@ -2,39 +2,24 @@
 
 # mod-bot-chat
 
-This module emulates World of Warcraft chat as it was in Wrath of the Lich King, back in the glory days — overlapping General, a guild that lumbers along, and a real conversation when you talk to someone.
+Bots chat like Wrath in 2009.
 
-Bots talk in Say, General, Party, Guild, and Whisper. General is overlapping short lines: quests, arguments, jokes, trash talk. Two topics can run at once:
+Log in and General has people looking for a tank, asking where the flight path is, talking about the game. Guild is wb, gz, and someone trying to get TOC together. Type at a bot and they answer you, including if you then whisper them.
+
+General:
 
 ```
-anyone in redridge
-uninstall wow pls
-tbc was better fight me
-need a tank for SM cath
-ulduar is one raid
+anyone doing quests in ungoro
+lf1m tank SM cath
+where is the un'goro fp
+ah prices are insane
+tbc was better
 so true
-leeroy jenkins
-found the pally
-who asked
-died to pterrordax lmao
-ah is a scam
-lfm means look for ninja
-close the game
+need a heal for ZF
+how do i get to stormwind
 ```
 
-An argument can stick around for a few minutes:
-
-```
-wrath is faceroll
-you like it because its easy
-vanilla was harder
-you didnt even play tbc
-naxx 40 was a zoo
-still better than this
-reported
-```
-
-Guild lumbers as one conversation. At peak a line every 10–30 seconds:
+Guild:
 
 ```
 wb
@@ -45,24 +30,15 @@ lfm toc 10 need 1 heal
 i can heal
 pst
 gz
-client froze again
-oof
 ```
 
-Talk to a bot and it answers the actual line, then stays on that conversation if you switch channels:
+Talking to someone:
 
 ```
 You: where fp
 Bot: stormwind fp is down by the canals
 You: /w what
 Bot: the gryphon master, canals
-```
-
-```
-You: /g client froze again
-Bot: oof
-You: /w what
-Bot: the client, it froze
 ```
 
 ```
@@ -73,11 +49,11 @@ You: im tank
 Bot: pst
 ```
 
-`gz` / `ty` / `wb` / `pst`, ding and death comments, and directions come from live game data. When you roast or banter, a local Ollama model (`llama3.1:8b`) writes the reply.
+`gz` / `ty` / `wb` / `pst`, flight paths, and ding/death comments come from the game. Replies to you come from a local Ollama model (`llama3.1:8b`).
 
-If [mod-circadian-bots](https://github.com/muntedpissmole/mod-circadian-bots) is installed, chatter volume follows its hour tables — weekday, Saturday, and Sunday. 7pm is busy. Saturday stays late. Sunday drops like a school night. 3am is a ghost town.
+With [mod-circadian-bots](https://github.com/muntedpissmole/mod-circadian-bots) the room follows the same hours as the rest of the realm. Busy evening, dead at 3am.
 
-Needs Ollama running on the game box with `llama3.1:8b` (or another 7B/8B).
+Needs Ollama on the game box with `llama3.1:8b` (or another 7B/8B).
 
 ## Installation
 
