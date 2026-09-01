@@ -404,69 +404,77 @@ std::string GetMultiLineConfigValue(const std::string& configFilePath, const std
     return value;
 }
 
+// Missing keys use the coded default instead of logging
+// "Config: Missing property" for every leftover ollama-chat knob.
+template <typename T>
+T BotChatOpt(char const* name, T const& def)
+{
+    return sConfigMgr->GetOption<T>(name, def, false);
+}
+
 void LoadBotChatConfig()
 {
-    g_SayDistance                     = sConfigMgr->GetOption<float>("BotChat.SayDistance", 30.0f);
-    g_YellDistance                    = sConfigMgr->GetOption<float>("BotChat.YellDistance", 100.0f);
+    g_SayDistance                     = BotChatOpt<float>("BotChat.SayDistance", 30.0f);
+    g_YellDistance                    = BotChatOpt<float>("BotChat.YellDistance", 100.0f);
     
     // Load per-channel-type reply chances
-    g_PlayerReplyChance_Say           = sConfigMgr->GetOption<uint32_t>("BotChat.PlayerReplyChance.Say", 90);
-    g_BotReplyChance_Say              = sConfigMgr->GetOption<uint32_t>("BotChat.BotReplyChance.Say", 10);
-    g_PlayerReplyChance_Channel       = sConfigMgr->GetOption<uint32_t>("BotChat.PlayerReplyChance.Channel", 80);
-    g_BotReplyChance_Channel          = sConfigMgr->GetOption<uint32_t>("BotChat.BotReplyChance.Channel", 18);
-    g_PlayerReplyChance_Party         = sConfigMgr->GetOption<uint32_t>("BotChat.PlayerReplyChance.Party", 90);
-    g_BotReplyChance_Party            = sConfigMgr->GetOption<uint32_t>("BotChat.BotReplyChance.Party", 10);
-    g_PlayerReplyChance_Guild         = sConfigMgr->GetOption<uint32_t>("BotChat.PlayerReplyChance.Guild", 70);
-    g_BotReplyChance_Guild            = sConfigMgr->GetOption<uint32_t>("BotChat.BotReplyChance.Guild", 5);
+    g_PlayerReplyChance_Say           = BotChatOpt<uint32_t>("BotChat.PlayerReplyChance.Say", 90);
+    g_BotReplyChance_Say              = BotChatOpt<uint32_t>("BotChat.BotReplyChance.Say", 10);
+    g_PlayerReplyChance_Channel       = BotChatOpt<uint32_t>("BotChat.PlayerReplyChance.Channel", 80);
+    g_BotReplyChance_Channel          = BotChatOpt<uint32_t>("BotChat.BotReplyChance.Channel", 18);
+    g_PlayerReplyChance_Party         = BotChatOpt<uint32_t>("BotChat.PlayerReplyChance.Party", 90);
+    g_BotReplyChance_Party            = BotChatOpt<uint32_t>("BotChat.BotReplyChance.Party", 10);
+    g_PlayerReplyChance_Guild         = BotChatOpt<uint32_t>("BotChat.PlayerReplyChance.Guild", 70);
+    g_BotReplyChance_Guild            = BotChatOpt<uint32_t>("BotChat.BotReplyChance.Guild", 5);
     
-    g_MaxBotsToPick                   = sConfigMgr->GetOption<uint32_t>("BotChat.MaxBotsToPick", 1);
-    g_EnableSocialConventions         = sConfigMgr->GetOption<bool>("BotChat.EnableSocialConventions", true);
-    g_SocialCueSeconds                = sConfigMgr->GetOption<uint32_t>("BotChat.SocialCueSeconds", 45);
-    g_OllamaUrl                       = sConfigMgr->GetOption<std::string>("BotChat.Url", "http://127.0.0.1:11434/api/generate");
-    g_OllamaModel                     = sConfigMgr->GetOption<std::string>("BotChat.Model", "llama3.1:8b");
-    g_OllamaNumPredict                = sConfigMgr->GetOption<uint32_t>("BotChat.NumPredict", 64);
-    g_OllamaTemperature               = sConfigMgr->GetOption<float>("BotChat.Temperature", 0.95f);
-    g_OllamaTimeout                   = sConfigMgr->GetOption<uint32_t>("BotChat.LLMTimeout", 15);
-    g_OllamaTopP                      = sConfigMgr->GetOption<float>("BotChat.TopP", 0.95f);
-    g_OllamaRepeatPenalty             = sConfigMgr->GetOption<float>("BotChat.RepeatPenalty", 1.1f);
-    g_OllamaNumCtx                    = sConfigMgr->GetOption<uint32_t>("BotChat.NumCtx", 0);
-    g_OllamaNumThreads                = sConfigMgr->GetOption<uint32_t>("BotChat.NumThreads", 0);
-    g_OllamaStop                      = sConfigMgr->GetOption<std::string>("BotChat.Stop", "");
-    g_OllamaSystemPrompt              = sConfigMgr->GetOption<std::string>("BotChat.SystemPrompt", "");
-    g_OllamaSeed                      = sConfigMgr->GetOption<std::string>("BotChat.Seed", "");
+    g_MaxBotsToPick                   = BotChatOpt<uint32_t>("BotChat.MaxBotsToPick", 1);
+    g_EnableSocialConventions         = BotChatOpt<bool>("BotChat.EnableSocialConventions", true);
+    g_SocialCueSeconds                = BotChatOpt<uint32_t>("BotChat.SocialCueSeconds", 45);
+    g_OllamaUrl                       = BotChatOpt<std::string>("BotChat.Url", "http://127.0.0.1:11434/api/generate");
+    g_OllamaModel                     = BotChatOpt<std::string>("BotChat.Model", "llama3.1:8b");
+    g_OllamaNumPredict                = BotChatOpt<uint32_t>("BotChat.NumPredict", 64);
+    g_OllamaTemperature               = BotChatOpt<float>("BotChat.Temperature", 0.95f);
+    g_OllamaTimeout                   = BotChatOpt<uint32_t>("BotChat.LLMTimeout", 15);
+    g_OllamaTopP                      = BotChatOpt<float>("BotChat.TopP", 0.95f);
+    g_OllamaRepeatPenalty             = BotChatOpt<float>("BotChat.RepeatPenalty", 1.1f);
+    g_OllamaNumCtx                    = BotChatOpt<uint32_t>("BotChat.NumCtx", 0);
+    g_OllamaNumThreads                = BotChatOpt<uint32_t>("BotChat.NumThreads", 0);
+    g_OllamaStop                      = BotChatOpt<std::string>("BotChat.Stop", "");
+    g_OllamaSystemPrompt              = BotChatOpt<std::string>("BotChat.SystemPrompt", "");
+    g_OllamaSeed                      = BotChatOpt<std::string>("BotChat.Seed", "");
 
-    g_MaxConcurrentQueries            = sConfigMgr->GetOption<uint32_t>("BotChat.MaxConcurrentQueries", 1);
+    g_MaxConcurrentQueries            = BotChatOpt<uint32_t>("BotChat.MaxConcurrentQueries", 1);
 
-    g_Enable                          = sConfigMgr->GetOption<bool>("BotChat.Enable", true);
-    g_EnableLLM                       = sConfigMgr->GetOption<bool>("BotChat.EnableLLM", true);
-    g_DisableRepliesInCombat          = sConfigMgr->GetOption<bool>("BotChat.DisableRepliesInCombat", true);
-    g_EnableRandomChatter             = sConfigMgr->GetOption<bool>("BotChat.EnableRandomChatter", true);
-    g_EnableEventChatter              = sConfigMgr->GetOption<bool>("BotChat.EnableEventChatter", true);
-    g_EnableWhisperReplies            = sConfigMgr->GetOption<bool>("BotChat.EnableWhisperReplies", true);
+    g_Enable                          = BotChatOpt<bool>("BotChat.Enable", true);
+    g_EnableLLM                       = BotChatOpt<bool>("BotChat.EnableLLM", true);
+    g_DisableRepliesInCombat          = BotChatOpt<bool>("BotChat.DisableRepliesInCombat", true);
+    g_EnableRandomChatter             = BotChatOpt<bool>("BotChat.EnableRandomChatter", true);
+    g_EnableEventChatter              = BotChatOpt<bool>("BotChat.EnableEventChatter", true);
+    g_EnableWhisperReplies            = BotChatOpt<bool>("BotChat.EnableWhisperReplies", true);
 
-    g_DebugEnabled                    = sConfigMgr->GetOption<bool>("BotChat.DebugEnabled", false);
-    g_DebugShowFullPrompt             = sConfigMgr->GetOption<bool>("BotChat.DebugShowFullPrompt", false);
+    g_DebugEnabled                    = BotChatOpt<bool>("BotChat.DebugEnabled", false);
+    g_DebugShowFullPrompt             = BotChatOpt<bool>("BotChat.DebugShowFullPrompt", false);
 
-    g_MinRandomInterval               = sConfigMgr->GetOption<uint32_t>("BotChat.MinRandomInterval", 45);
-    g_MaxRandomInterval               = sConfigMgr->GetOption<uint32_t>("BotChat.MaxRandomInterval", 180);
-    g_RandomChatterRealPlayerDistance = sConfigMgr->GetOption<float>("BotChat.RandomChatterRealPlayerDistance", 40.0f);
-    g_RandomChatterBotCommentChance   = sConfigMgr->GetOption<uint32_t>("BotChat.RandomChatterBotCommentChance", 18);
-    g_RandomChatterMaxBotsPerPlayer   = sConfigMgr->GetOption<uint32_t>("BotChat.RandomChatterMaxBotsPerPlayer", 2);
+    g_MinRandomInterval               = BotChatOpt<uint32_t>("BotChat.MinRandomInterval", 45);
+    g_MaxRandomInterval               = BotChatOpt<uint32_t>("BotChat.MaxRandomInterval", 180);
+    g_RandomChatterRealPlayerDistance = BotChatOpt<float>("BotChat.RandomChatterRealPlayerDistance", 40.0f);
+    g_RandomChatterBotCommentChance   = BotChatOpt<uint32_t>("BotChat.RandomChatterBotCommentChance", 18);
+    g_RandomChatterMaxBotsPerPlayer   = BotChatOpt<uint32_t>("BotChat.RandomChatterMaxBotsPerPlayer", 2);
 
-    g_EnableGuildRandomAmbientChatter = sConfigMgr->GetOption<bool>("BotChat.EnableGuildRandomAmbientChatter", true);
-    g_GuildRandomChatterChance        = sConfigMgr->GetOption<uint32_t>("BotChat.GuildRandomChatterChance", 10);
+    g_EnableGuildRandomAmbientChatter = BotChatOpt<bool>("BotChat.EnableGuildRandomAmbientChatter", true);
+    g_GuildRandomChatterChance        = BotChatOpt<uint32_t>("BotChat.GuildRandomChatterChance", 10);
 
-    g_EventChatterRealPlayerDistance = sConfigMgr->GetOption<float>("BotChat.EventChatterRealPlayerDistance", 40.0f);
-    g_EventChatterBotCommentChance   = sConfigMgr->GetOption<uint32_t>("BotChat.EventChatterBotCommentChance", 15);
-    g_EventChatterBotSelfCommentChance = sConfigMgr->GetOption<uint32_t>("BotChat.EventChatterBotSelfCommentChance", 5);
-    g_EventChatterMaxBotsPerPlayer   = sConfigMgr->GetOption<uint32_t>("BotChat.EventChatterMaxBotsPerPlayer", 2);
+    g_EventChatterRealPlayerDistance = BotChatOpt<float>("BotChat.EventChatterRealPlayerDistance", 40.0f);
+    g_EventChatterBotCommentChance   = BotChatOpt<uint32_t>("BotChat.EventChatterBotCommentChance", 15);
+    g_EventChatterBotSelfCommentChance = BotChatOpt<uint32_t>("BotChat.EventChatterBotSelfCommentChance", 5);
+    g_EventChatterMaxBotsPerPlayer   = BotChatOpt<uint32_t>("BotChat.EventChatterMaxBotsPerPlayer", 2);
 
-    g_EnableRPPersonalities           = sConfigMgr->GetOption<bool>("BotChat.EnableRPPersonalities", false);
+    g_EnableRPPersonalities           = BotChatOpt<bool>("BotChat.EnableRPPersonalities", false);
 
-    g_RandomChatterPromptTemplate     = sConfigMgr->GetOption<std::string>("BotChat.RandomChatterPromptTemplate", "");
+    g_RandomChatterPromptTemplate     = BotChatOpt<std::string>("BotChat.RandomChatterPromptTemplate", "");
 
     // Load random chatter prompt variations
-    std::string variationsStr = sConfigMgr->GetOption<std::string>("BotChat.RandomChatterPromptVariations", "");
+    std::string variationsStr = BotChatOpt<std::string>("BotChat.RandomChatterPromptVariations", "");
     g_RandomChatterPromptVariations.clear();
     if (!variationsStr.empty())
     {
@@ -482,7 +490,7 @@ void LoadBotChatConfig()
     }
 
     // Load random chatter question variations
-    std::string questionsStr = sConfigMgr->GetOption<std::string>("BotChat.RandomChatterQuestionVariations", "");
+    std::string questionsStr = BotChatOpt<std::string>("BotChat.RandomChatterQuestionVariations", "");
     g_RandomChatterQuestionVariations.clear();
     if (!questionsStr.empty())
     {
@@ -497,98 +505,98 @@ void LoadBotChatConfig()
         }
     }
 
-    g_EventChatterPromptTemplate     = sConfigMgr->GetOption<std::string>("BotChat.EventChatterPromptTemplate", "");
+    g_EventChatterPromptTemplate     = BotChatOpt<std::string>("BotChat.EventChatterPromptTemplate", "");
 
-    g_ChatPromptTemplate              = sConfigMgr->GetOption<std::string>("BotChat.ChatPromptTemplate", "");
+    g_ChatPromptTemplate              = BotChatOpt<std::string>("BotChat.ChatPromptTemplate", "");
     
-    g_ChatExtraInfoTemplate           = sConfigMgr->GetOption<std::string>("BotChat.ChatExtraInfoTemplate", "");
+    g_ChatExtraInfoTemplate           = BotChatOpt<std::string>("BotChat.ChatExtraInfoTemplate", "");
 
-    g_DefaultPersonalityPrompt        = sConfigMgr->GetOption<std::string>("BotChat.DefaultPersonalityPrompt", "");
+    g_DefaultPersonalityPrompt        = BotChatOpt<std::string>("BotChat.DefaultPersonalityPrompt", "");
 
-    g_MaxConversationHistory          = sConfigMgr->GetOption<uint32_t>("BotChat.MaxConversationHistory", 5);
-    g_ConversationHistorySaveInterval = sConfigMgr->GetOption<uint32_t>("BotChat.ConversationHistorySaveInterval", 10);
+    g_MaxConversationHistory          = BotChatOpt<uint32_t>("BotChat.MaxConversationHistory", 5);
+    g_ConversationHistorySaveInterval = BotChatOpt<uint32_t>("BotChat.ConversationHistorySaveInterval", 10);
 
-    g_ChatHistoryHeaderTemplate       = sConfigMgr->GetOption<std::string>("BotChat.ChatHistoryHeaderTemplate", "");
-    g_ChatHistoryLineTemplate         = sConfigMgr->GetOption<std::string>("BotChat.ChatHistoryLineTemplate", "");
-    g_ChatHistoryFooterTemplate       = sConfigMgr->GetOption<std::string>("BotChat.ChatHistoryFooterTemplate", "");
+    g_ChatHistoryHeaderTemplate       = BotChatOpt<std::string>("BotChat.ChatHistoryHeaderTemplate", "");
+    g_ChatHistoryLineTemplate         = BotChatOpt<std::string>("BotChat.ChatHistoryLineTemplate", "");
+    g_ChatHistoryFooterTemplate       = BotChatOpt<std::string>("BotChat.ChatHistoryFooterTemplate", "");
 
-    g_EnableChatBotSnapshotTemplate   = sConfigMgr->GetOption<bool>("BotChat.EnableChatBotSnapshotTemplate", false);
-    g_ChatBotSnapshotTemplate         = sConfigMgr->GetOption<std::string>("BotChat.ChatBotSnapshotTemplate", "");
+    g_EnableChatBotSnapshotTemplate   = BotChatOpt<bool>("BotChat.EnableChatBotSnapshotTemplate", false);
+    g_ChatBotSnapshotTemplate         = BotChatOpt<std::string>("BotChat.ChatBotSnapshotTemplate", "");
 
-    g_EnableChatHistory               = sConfigMgr->GetOption<bool>("BotChat.EnableChatHistory", true);
+    g_EnableChatHistory               = BotChatOpt<bool>("BotChat.EnableChatHistory", true);
 
     // Bot-Player Sentiment Tracking
-    g_EnableSentimentTracking         = sConfigMgr->GetOption<bool>("BotChat.EnableSentimentTracking", true);
-    g_SentimentDefaultValue           = sConfigMgr->GetOption<float>("BotChat.SentimentDefaultValue", 0.5f);
-    g_SentimentAdjustmentStrength     = sConfigMgr->GetOption<float>("BotChat.SentimentAdjustmentStrength", 0.1f);
-    g_SentimentSaveInterval           = sConfigMgr->GetOption<uint32_t>("BotChat.SentimentSaveInterval", 10);
-    g_SentimentAnalysisPrompt         = sConfigMgr->GetOption<std::string>("BotChat.SentimentAnalysisPrompt", "Analyze the sentiment of this message: \"{message}\". Respond only with: POSITIVE, NEGATIVE, or NEUTRAL.");
-    g_SentimentPromptTemplate         = sConfigMgr->GetOption<std::string>("BotChat.SentimentPromptTemplate", "Your relationship sentiment with {player_name} is {sentiment_value} (0.0=hostile, 0.5=neutral, 1.0=friendly). Use this to guide your tone and response.");
+    g_EnableSentimentTracking         = BotChatOpt<bool>("BotChat.EnableSentimentTracking", true);
+    g_SentimentDefaultValue           = BotChatOpt<float>("BotChat.SentimentDefaultValue", 0.5f);
+    g_SentimentAdjustmentStrength     = BotChatOpt<float>("BotChat.SentimentAdjustmentStrength", 0.1f);
+    g_SentimentSaveInterval           = BotChatOpt<uint32_t>("BotChat.SentimentSaveInterval", 10);
+    g_SentimentAnalysisPrompt         = BotChatOpt<std::string>("BotChat.SentimentAnalysisPrompt", "Analyze the sentiment of this message: \"{message}\". Respond only with: POSITIVE, NEGATIVE, or NEUTRAL.");
+    g_SentimentPromptTemplate         = BotChatOpt<std::string>("BotChat.SentimentPromptTemplate", "Your relationship sentiment with {player_name} is {sentiment_value} (0.0=hostile, 0.5=neutral, 1.0=friendly). Use this to guide your tone and response.");
 
     // RAG (Retrieval-Augmented Generation) System
-    g_EnableRAG                       = sConfigMgr->GetOption<bool>("BotChat.EnableRAG", true);
-    g_RAGDataPath                     = sConfigMgr->GetOption<std::string>("BotChat.RAGDataPath", "rag/");
-    g_RAGMaxRetrievedItems            = sConfigMgr->GetOption<uint32_t>("BotChat.RAGMaxRetrievedItems", 3);
-    g_RAGSimilarityThreshold          = sConfigMgr->GetOption<float>("BotChat.RAGSimilarityThreshold", 0.25f);
-    g_RAGPromptTemplate               = sConfigMgr->GetOption<std::string>("BotChat.RAGPromptTemplate", "RELEVANT INFORMATION:\n{rag_info}\nUse this for general WoW knowledge. Do not invent specific coordinates or quest givers from it.");
+    g_EnableRAG                       = BotChatOpt<bool>("BotChat.EnableRAG", true);
+    g_RAGDataPath                     = BotChatOpt<std::string>("BotChat.RAGDataPath", "rag/");
+    g_RAGMaxRetrievedItems            = BotChatOpt<uint32_t>("BotChat.RAGMaxRetrievedItems", 3);
+    g_RAGSimilarityThreshold          = BotChatOpt<float>("BotChat.RAGSimilarityThreshold", 0.25f);
+    g_RAGPromptTemplate               = BotChatOpt<std::string>("BotChat.RAGPromptTemplate", "RELEVANT INFORMATION:\n{rag_info}\nUse this for general WoW knowledge. Do not invent specific coordinates or quest givers from it.");
 
-    g_EnableChannelThreads            = sConfigMgr->GetOption<bool>("BotChat.EnableChannelThreads", true);
-    g_ChannelThreadMaxLines           = sConfigMgr->GetOption<uint32_t>("BotChat.ChannelThreadMaxLines", 48);
-    g_TopicIdleSeconds                = sConfigMgr->GetOption<uint32_t>("BotChat.TopicIdleSeconds", 180);
-    g_ContinueTopicChance             = sConfigMgr->GetOption<uint32_t>("BotChat.ContinueTopicChance", 40);
-    g_ScaleWithPopulation             = sConfigMgr->GetOption<bool>("BotChat.ScaleWithPopulation", true);
-    g_AdultEnable                     = sConfigMgr->GetOption<bool>("BotChat.AdultEnable", true);
-    g_AdultHour                       = sConfigMgr->GetOption<uint32_t>("BotChat.AdultHour", 21);
+    g_EnableChannelThreads            = BotChatOpt<bool>("BotChat.EnableChannelThreads", true);
+    g_ChannelThreadMaxLines           = BotChatOpt<uint32_t>("BotChat.ChannelThreadMaxLines", 48);
+    g_TopicIdleSeconds                = BotChatOpt<uint32_t>("BotChat.TopicIdleSeconds", 180);
+    g_ContinueTopicChance             = BotChatOpt<uint32_t>("BotChat.ContinueTopicChance", 40);
+    g_ScaleWithPopulation             = BotChatOpt<bool>("BotChat.ScaleWithPopulation", true);
+    g_AdultEnable                     = BotChatOpt<bool>("BotChat.AdultEnable", true);
+    g_AdultHour                       = BotChatOpt<uint32_t>("BotChat.AdultHour", 21);
     if (g_AdultHour > 23)
         g_AdultHour = 21;
-    g_Toxicity                        = sConfigMgr->GetOption<uint32_t>("BotChat.Toxicity", 0);
+    g_Toxicity                        = BotChatOpt<uint32_t>("BotChat.Toxicity", 0);
     if (g_Toxicity > 3)
         g_Toxicity = 3;
-    g_BlowupChance                    = sConfigMgr->GetOption<uint32_t>("BotChat.BlowupChance", 28);
+    g_BlowupChance                    = BotChatOpt<uint32_t>("BotChat.BlowupChance", 28);
     if (g_BlowupChance > 100)
         g_BlowupChance = 100;
-    g_BlowupSeconds                   = sConfigMgr->GetOption<uint32_t>("BotChat.BlowupSeconds", 600);
+    g_BlowupSeconds                   = BotChatOpt<uint32_t>("BotChat.BlowupSeconds", 600);
     if (g_BlowupSeconds < 120)
         g_BlowupSeconds = 120;
     if (g_BlowupSeconds > 1800)
         g_BlowupSeconds = 1800;
-    g_PreferThreadRegulars            = sConfigMgr->GetOption<bool>("BotChat.PreferThreadRegulars", true);
-    g_ChannelThreadHeaderTemplate     = sConfigMgr->GetOption<std::string>("BotChat.ChannelThreadHeaderTemplate", "RECENT CHANNEL CHAT (continue this conversation, do not greet or start a new topic):\n");
-    g_ChannelThreadLineTemplate       = sConfigMgr->GetOption<std::string>("BotChat.ChannelThreadLineTemplate", "[{speaker}]: {message}\n");
-    g_RandomChatterContinueTemplate   = sConfigMgr->GetOption<std::string>("BotChat.RandomChatterContinueTemplate", "Continue this channel conversation naturally. Add one short line on the same topic or a small tangent. Do not greet. Do not repeat what was just said.");
+    g_PreferThreadRegulars            = BotChatOpt<bool>("BotChat.PreferThreadRegulars", true);
+    g_ChannelThreadHeaderTemplate     = BotChatOpt<std::string>("BotChat.ChannelThreadHeaderTemplate", "RECENT CHANNEL CHAT (continue this conversation, do not greet or start a new topic):\n");
+    g_ChannelThreadLineTemplate       = BotChatOpt<std::string>("BotChat.ChannelThreadLineTemplate", "[{speaker}]: {message}\n");
+    g_RandomChatterContinueTemplate   = BotChatOpt<std::string>("BotChat.RandomChatterContinueTemplate", "Continue this channel conversation naturally. Add one short line on the same topic or a small tangent. Do not greet. Do not repeat what was just said.");
 
-    g_EnableGameKnowledge             = sConfigMgr->GetOption<bool>("BotChat.EnableGameKnowledge", true);
-    g_GameKnowledgeMaxFacts           = sConfigMgr->GetOption<uint32_t>("BotChat.GameKnowledgeMaxFacts", 4);
-    g_QuestionReplyChanceBonus        = sConfigMgr->GetOption<uint32_t>("BotChat.QuestionReplyChanceBonus", 25);
-    g_AlwaysReplyToPlayerQuestions    = sConfigMgr->GetOption<bool>("BotChat.AlwaysReplyToPlayerQuestions", true);
-    g_GameKnowledgePromptTemplate     = sConfigMgr->GetOption<std::string>("BotChat.GameKnowledgePromptTemplate", "KNOWN FACTS (use only these, do not invent numbers or locations):\n{facts}\nIf a fact is missing, say you don't remember the exact spot.");
-    g_GameKnowledgeNoneTemplate       = sConfigMgr->GetOption<std::string>("BotChat.GameKnowledgeNoneTemplate", "NO RELIABLE FACTS found for this question. Do not invent a location, quest giver, or coordinates. Say you don't remember the exact spot or ask for the exact name.");
+    g_EnableGameKnowledge             = BotChatOpt<bool>("BotChat.EnableGameKnowledge", true);
+    g_GameKnowledgeMaxFacts           = BotChatOpt<uint32_t>("BotChat.GameKnowledgeMaxFacts", 4);
+    g_QuestionReplyChanceBonus        = BotChatOpt<uint32_t>("BotChat.QuestionReplyChanceBonus", 25);
+    g_AlwaysReplyToPlayerQuestions    = BotChatOpt<bool>("BotChat.AlwaysReplyToPlayerQuestions", true);
+    g_GameKnowledgePromptTemplate     = BotChatOpt<std::string>("BotChat.GameKnowledgePromptTemplate", "KNOWN FACTS (use only these, do not invent numbers or locations):\n{facts}\nIf a fact is missing, say you don't remember the exact spot.");
+    g_GameKnowledgeNoneTemplate       = BotChatOpt<std::string>("BotChat.GameKnowledgeNoneTemplate", "NO RELIABLE FACTS found for this question. Do not invent a location, quest giver, or coordinates. Say you don't remember the exact spot or ask for the exact name.");
 
-    g_ThinkModeEnableForModule        = sConfigMgr->GetOption<bool>("BotChat.ThinkModeEnableForModule", false);
+    g_ThinkModeEnableForModule        = BotChatOpt<bool>("BotChat.ThinkModeEnableForModule", false);
 
     // Typing Simulation
-    g_EnableTypingSimulation          = sConfigMgr->GetOption<bool>("BotChat.EnableTypingSimulation", true);
-    g_TypingSimulationBaseDelay       = sConfigMgr->GetOption<uint32_t>("BotChat.TypingSimulationBaseDelay", 800);
-    g_TypingSimulationDelayPerChar    = sConfigMgr->GetOption<uint32_t>("BotChat.TypingSimulationDelayPerChar", 60);
+    g_EnableTypingSimulation          = BotChatOpt<bool>("BotChat.EnableTypingSimulation", true);
+    g_TypingSimulationBaseDelay       = BotChatOpt<uint32_t>("BotChat.TypingSimulationBaseDelay", 800);
+    g_TypingSimulationDelayPerChar    = BotChatOpt<uint32_t>("BotChat.TypingSimulationDelayPerChar", 60);
 
-    g_EventTypeDefeated           = sConfigMgr->GetOption<std::string>("BotChat.EventTypeDefeated", "");
-    g_EventTypeDefeatedPlayer     = sConfigMgr->GetOption<std::string>("BotChat.EventTypeDefeatedPlayer", "");
-    g_EventTypePetDefeated        = sConfigMgr->GetOption<std::string>("BotChat.EventTypePetDefeated", "");
-    g_EventTypeGotItem            = sConfigMgr->GetOption<std::string>("BotChat.EventTypeGotItem", "");
-    g_EventTypeDied               = sConfigMgr->GetOption<std::string>("BotChat.EventTypeDied", "");
-    g_EventTypeCompletedQuest     = sConfigMgr->GetOption<std::string>("BotChat.EventTypeCompletedQuest", "");
-    g_EventTypeLearnedSpell       = sConfigMgr->GetOption<std::string>("BotChat.EventTypeLearnedSpell", "");
-    g_EventTypeRequestedDuel      = sConfigMgr->GetOption<std::string>("BotChat.EventTypeRequestedDuel", "");
-    g_EventTypeStartedDueling     = sConfigMgr->GetOption<std::string>("BotChat.EventTypeStartedDueling", "");
-    g_EventTypeWonDuel            = sConfigMgr->GetOption<std::string>("BotChat.EventTypeWonDuel", "");
-    g_EventTypeLeveledUp          = sConfigMgr->GetOption<std::string>("BotChat.EventTypeLeveledUp", "");
-    g_EventTypeAchievement        = sConfigMgr->GetOption<std::string>("BotChat.EventTypeAchievement", "");
-    g_EventTypeUsedObject         = sConfigMgr->GetOption<std::string>("BotChat.EventTypeUsedObject", "");
+    g_EventTypeDefeated           = BotChatOpt<std::string>("BotChat.EventTypeDefeated", "");
+    g_EventTypeDefeatedPlayer     = BotChatOpt<std::string>("BotChat.EventTypeDefeatedPlayer", "");
+    g_EventTypePetDefeated        = BotChatOpt<std::string>("BotChat.EventTypePetDefeated", "");
+    g_EventTypeGotItem            = BotChatOpt<std::string>("BotChat.EventTypeGotItem", "");
+    g_EventTypeDied               = BotChatOpt<std::string>("BotChat.EventTypeDied", "");
+    g_EventTypeCompletedQuest     = BotChatOpt<std::string>("BotChat.EventTypeCompletedQuest", "");
+    g_EventTypeLearnedSpell       = BotChatOpt<std::string>("BotChat.EventTypeLearnedSpell", "");
+    g_EventTypeRequestedDuel      = BotChatOpt<std::string>("BotChat.EventTypeRequestedDuel", "");
+    g_EventTypeStartedDueling     = BotChatOpt<std::string>("BotChat.EventTypeStartedDueling", "");
+    g_EventTypeWonDuel            = BotChatOpt<std::string>("BotChat.EventTypeWonDuel", "");
+    g_EventTypeLeveledUp          = BotChatOpt<std::string>("BotChat.EventTypeLeveledUp", "");
+    g_EventTypeAchievement        = BotChatOpt<std::string>("BotChat.EventTypeAchievement", "");
+    g_EventTypeUsedObject         = BotChatOpt<std::string>("BotChat.EventTypeUsedObject", "");
 
 
     // Load extra blacklist commands from config (comma-separated list)
     g_BlacklistCommands = { ".playerbots", "playerbot", "questie", "Questie:" };
-    std::string extraBlacklist = sConfigMgr->GetOption<std::string>("BotChat.BlacklistCommands", "");
+    std::string extraBlacklist = BotChatOpt<std::string>("BotChat.BlacklistCommands", "");
     if (!extraBlacklist.empty())
     {
         std::vector<std::string> extraList = SplitString(extraBlacklist, ',');
@@ -607,7 +615,7 @@ void LoadBotChatConfig()
     // Helper to load a multi-line config option into a std::vector<std::string>
     auto LoadEnvCommentVector = [](const char* key, const std::vector<std::string>& defaults = {}) -> std::vector<std::string>
     {
-        std::string val = sConfigMgr->GetOption<std::string>(key, "");
+        std::string val = BotChatOpt<std::string>(key, "");
         std::vector<std::string> result;
         std::istringstream iss(val);
         std::string token;
@@ -651,57 +659,57 @@ void LoadBotChatConfig()
     g_GuildEnvCommentGuildCommunity = LoadEnvCommentVector("BotChat.GuildEnvCommentGuildCommunity", { "" });
 
     // Guild-specific configuration
-    g_EnableGuildEventChatter = sConfigMgr->GetOption<bool>("BotChat.EnableGuildEventChatter", true);
-    g_GuildChatterBotCommentChance = sConfigMgr->GetOption<uint32_t>("BotChat.GuildChatterBotCommentChance", 25);
-    g_GuildChatterMaxBotsPerEvent = sConfigMgr->GetOption<uint32_t>("BotChat.GuildChatterMaxBotsPerEvent", 2);
+    g_EnableGuildEventChatter = BotChatOpt<bool>("BotChat.EnableGuildEventChatter", true);
+    g_GuildChatterBotCommentChance = BotChatOpt<uint32_t>("BotChat.GuildChatterBotCommentChance", 25);
+    g_GuildChatterMaxBotsPerEvent = BotChatOpt<uint32_t>("BotChat.GuildChatterMaxBotsPerEvent", 2);
 
     // Guild-specific event templates
-    g_GuildEventTypeLevelUp = sConfigMgr->GetOption<std::string>("BotChat.GuildEventTypeLevelUp", "");
-    g_GuildEventTypeDungeonComplete = sConfigMgr->GetOption<std::string>("BotChat.GuildEventTypeDungeonComplete", "");
-    g_GuildEventTypeEpicGear = sConfigMgr->GetOption<std::string>("BotChat.GuildEventTypeEpicGear", "");
-    g_GuildEventTypeRareGear = sConfigMgr->GetOption<std::string>("BotChat.GuildEventTypeRareGear", "");
-    g_GuildEventTypeGuildJoin = sConfigMgr->GetOption<std::string>("BotChat.GuildEventTypeGuildJoin", "");
-    g_GuildEventTypeGuildLogin = sConfigMgr->GetOption<std::string>("BotChat.GuildEventTypeGuildLogin", "");
-    g_GuildEventTypeGuildLeave = sConfigMgr->GetOption<std::string>("BotChat.GuildEventTypeGuildLeave", "");
-    g_GuildEventTypeGuildPromotion = sConfigMgr->GetOption<std::string>("BotChat.GuildEventTypeGuildPromotion", "");
-    g_GuildEventTypeGuildDemotion = sConfigMgr->GetOption<std::string>("BotChat.GuildEventTypeGuildDemotion", "");
+    g_GuildEventTypeLevelUp = BotChatOpt<std::string>("BotChat.GuildEventTypeLevelUp", "");
+    g_GuildEventTypeDungeonComplete = BotChatOpt<std::string>("BotChat.GuildEventTypeDungeonComplete", "");
+    g_GuildEventTypeEpicGear = BotChatOpt<std::string>("BotChat.GuildEventTypeEpicGear", "");
+    g_GuildEventTypeRareGear = BotChatOpt<std::string>("BotChat.GuildEventTypeRareGear", "");
+    g_GuildEventTypeGuildJoin = BotChatOpt<std::string>("BotChat.GuildEventTypeGuildJoin", "");
+    g_GuildEventTypeGuildLogin = BotChatOpt<std::string>("BotChat.GuildEventTypeGuildLogin", "");
+    g_GuildEventTypeGuildLeave = BotChatOpt<std::string>("BotChat.GuildEventTypeGuildLeave", "");
+    g_GuildEventTypeGuildPromotion = BotChatOpt<std::string>("BotChat.GuildEventTypeGuildPromotion", "");
+    g_GuildEventTypeGuildDemotion = BotChatOpt<std::string>("BotChat.GuildEventTypeGuildDemotion", "");
 
     // Load chance variables for normal events
-    g_EventTypeDefeated_Chance = sConfigMgr->GetOption<int>("BotChat.EventTypeDefeated_Chance", 0);
-    g_EventTypeDefeatedPlayer_Chance = sConfigMgr->GetOption<int>("BotChat.EventTypeDefeatedPlayer_Chance", 0);
-    g_EventTypePetDefeated_Chance = sConfigMgr->GetOption<int>("BotChat.EventTypePetDefeated_Chance", 0);
-    g_EventTypeGotItem_Chance = sConfigMgr->GetOption<int>("BotChat.EventTypeGotItem_Chance", 0);
-    g_EventTypeDied_Chance = sConfigMgr->GetOption<int>("BotChat.EventTypeDied_Chance", 0);
-    g_EventTypeCompletedQuest_Chance = sConfigMgr->GetOption<int>("BotChat.EventTypeCompletedQuest_Chance", 0);
-    g_EventTypeLearnedSpell_Chance = sConfigMgr->GetOption<int>("BotChat.EventTypeLearnedSpell_Chance", 0);
-    g_EventTypeRequestedDuel_Chance = sConfigMgr->GetOption<int>("BotChat.EventTypeRequestedDuel_Chance", 0);
-    g_EventTypeStartedDueling_Chance = sConfigMgr->GetOption<int>("BotChat.EventTypeStartedDueling_Chance", 0);
-    g_EventTypeWonDuel_Chance = sConfigMgr->GetOption<int>("BotChat.EventTypeWonDuel_Chance", 0);
-    g_EventTypeLeveledUp_Chance = sConfigMgr->GetOption<int>("BotChat.EventTypeLeveledUp_Chance", 0);
-    g_EventTypeAchievement_Chance = sConfigMgr->GetOption<int>("BotChat.EventTypeAchievement_Chance", 0);
-    g_EventTypeUsedObject_Chance = sConfigMgr->GetOption<int>("BotChat.EventTypeUsedObject_Chance", 0);
+    g_EventTypeDefeated_Chance = BotChatOpt<int>("BotChat.EventTypeDefeated_Chance", 0);
+    g_EventTypeDefeatedPlayer_Chance = BotChatOpt<int>("BotChat.EventTypeDefeatedPlayer_Chance", 0);
+    g_EventTypePetDefeated_Chance = BotChatOpt<int>("BotChat.EventTypePetDefeated_Chance", 0);
+    g_EventTypeGotItem_Chance = BotChatOpt<int>("BotChat.EventTypeGotItem_Chance", 0);
+    g_EventTypeDied_Chance = BotChatOpt<int>("BotChat.EventTypeDied_Chance", 0);
+    g_EventTypeCompletedQuest_Chance = BotChatOpt<int>("BotChat.EventTypeCompletedQuest_Chance", 0);
+    g_EventTypeLearnedSpell_Chance = BotChatOpt<int>("BotChat.EventTypeLearnedSpell_Chance", 0);
+    g_EventTypeRequestedDuel_Chance = BotChatOpt<int>("BotChat.EventTypeRequestedDuel_Chance", 0);
+    g_EventTypeStartedDueling_Chance = BotChatOpt<int>("BotChat.EventTypeStartedDueling_Chance", 0);
+    g_EventTypeWonDuel_Chance = BotChatOpt<int>("BotChat.EventTypeWonDuel_Chance", 0);
+    g_EventTypeLeveledUp_Chance = BotChatOpt<int>("BotChat.EventTypeLeveledUp_Chance", 0);
+    g_EventTypeAchievement_Chance = BotChatOpt<int>("BotChat.EventTypeAchievement_Chance", 0);
+    g_EventTypeUsedObject_Chance = BotChatOpt<int>("BotChat.EventTypeUsedObject_Chance", 0);
 
     // Load chance variables for guild events
-    g_GuildEventTypeEpicGear_Chance = sConfigMgr->GetOption<int>("BotChat.GuildEventTypeEpicGear_Chance", 0);
-    g_GuildEventTypeRareGear_Chance = sConfigMgr->GetOption<int>("BotChat.GuildEventTypeRareGear_Chance", 0);
-    g_GuildEventTypeGuildJoin_Chance = sConfigMgr->GetOption<int>("BotChat.GuildEventTypeGuildJoin_Chance", 0);
-    g_GuildEventTypeGuildLogin_Chance = sConfigMgr->GetOption<int>("BotChat.GuildEventTypeGuildLogin_Chance", 0);
-    g_GuildEventTypeGuildLeave_Chance = sConfigMgr->GetOption<int>("BotChat.GuildEventTypeGuildLeave_Chance", 0);
-    g_GuildEventTypeGuildPromotion_Chance = sConfigMgr->GetOption<int>("BotChat.GuildEventTypeGuildPromotion_Chance", 0);
-    g_GuildEventTypeGuildDemotion_Chance = sConfigMgr->GetOption<int>("BotChat.GuildEventTypeGuildDemotion_Chance", 0);
-    g_GuildEventTypeGuildAchievement_Chance = sConfigMgr->GetOption<int>("BotChat.GuildEventTypeGuildAchievement_Chance", 0);
-    g_GuildEventTypeLevelUp_Chance = sConfigMgr->GetOption<int>("BotChat.GuildEventTypeLevelUp_Chance", 0);
-    g_GuildEventTypeDungeonComplete_Chance = sConfigMgr->GetOption<int>("BotChat.GuildEventTypeDungeonComplete_Chance", 0);
+    g_GuildEventTypeEpicGear_Chance = BotChatOpt<int>("BotChat.GuildEventTypeEpicGear_Chance", 0);
+    g_GuildEventTypeRareGear_Chance = BotChatOpt<int>("BotChat.GuildEventTypeRareGear_Chance", 0);
+    g_GuildEventTypeGuildJoin_Chance = BotChatOpt<int>("BotChat.GuildEventTypeGuildJoin_Chance", 0);
+    g_GuildEventTypeGuildLogin_Chance = BotChatOpt<int>("BotChat.GuildEventTypeGuildLogin_Chance", 0);
+    g_GuildEventTypeGuildLeave_Chance = BotChatOpt<int>("BotChat.GuildEventTypeGuildLeave_Chance", 0);
+    g_GuildEventTypeGuildPromotion_Chance = BotChatOpt<int>("BotChat.GuildEventTypeGuildPromotion_Chance", 0);
+    g_GuildEventTypeGuildDemotion_Chance = BotChatOpt<int>("BotChat.GuildEventTypeGuildDemotion_Chance", 0);
+    g_GuildEventTypeGuildAchievement_Chance = BotChatOpt<int>("BotChat.GuildEventTypeGuildAchievement_Chance", 0);
+    g_GuildEventTypeLevelUp_Chance = BotChatOpt<int>("BotChat.GuildEventTypeLevelUp_Chance", 0);
+    g_GuildEventTypeDungeonComplete_Chance = BotChatOpt<int>("BotChat.GuildEventTypeDungeonComplete_Chance", 0);
 
 
     // Cooldown time for events
-    g_EventCooldownTime = sConfigMgr->GetOption<uint32_t>("BotChat.EventCooldownTime", 10);
+    g_EventCooldownTime = BotChatOpt<uint32_t>("BotChat.EventCooldownTime", 10);
 
     // Channel disable settings
-    g_DisableForCustomChannels = sConfigMgr->GetOption<bool>("BotChat.DisableForCustomChannels", false);
-    g_DisableForSayYell = sConfigMgr->GetOption<bool>("BotChat.DisableForSayYell", false);
-    g_DisableForGuild = sConfigMgr->GetOption<bool>("BotChat.DisableForGuild", false);
-    g_DisableForParty = sConfigMgr->GetOption<bool>("BotChat.DisableForParty", false);
+    g_DisableForCustomChannels = BotChatOpt<bool>("BotChat.DisableForCustomChannels", false);
+    g_DisableForSayYell = BotChatOpt<bool>("BotChat.DisableForSayYell", false);
+    g_DisableForGuild = BotChatOpt<bool>("BotChat.DisableForGuild", false);
+    g_DisableForParty = BotChatOpt<bool>("BotChat.DisableForParty", false);
 
     LOG_INFO("server.loading",
              "[Bot Chat] Config loaded: Enabled = {}, LLM = {}, SayDistance = {}, YellDistance = {}, "
