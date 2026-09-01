@@ -199,6 +199,30 @@ namespace
         }
     }
 
+    std::string AdultInstruction(std::string const& channel)
+    {
+        std::string out;
+        if (BotChatBlowupActiveAny())
+            return "A free-for-all is going. TYPE IN ALL CAPS. You are losing it. "
+                   "Swear (fuck, shit, ass). Be cruel. Pile on. Stay on the claim. "
+                   "Do not slur. Do not tell anyone to kill themselves. Do not claim you know where they live. "
+                   "Do not mock Christianity, Jesus, the Bible, or God.\n";
+        if (BotChatAdultMix())
+        {
+            if (channel == "Guild")
+                out = "Late night. Swearing is fine (fuck, shit, ass). Still guild, not General salt. "
+                      "Do not slur.\n";
+            else
+                out = "Late night. Swearing is normal (fuck, shit, ass, damn). Mean is ok. "
+                      "Do not slur. Do not lecture.\n";
+        }
+        if (BotChatEffectiveToxicity() >= 1)
+            out += "Be saltier. Ninja loot, grey parses, gold buyers, this game is dying are fair game. "
+                   "Do not slur. Do not tell anyone to kill themselves. Do not claim you know where they live. "
+                   "Do not mock Christianity, Jesus, the Bible, or God. Other religions are fair game.\n";
+        return out;
+    }
+
     std::string BuildPrompt(std::string const& botName, std::string const& botFact, std::string const& place,
                             std::string const& channel, std::string const& playerMsg, ChatTone tone,
                             std::string const& thread)
@@ -236,7 +260,8 @@ namespace
            << "Paladin nick is pally, never pala. Do not say this guy or this chat.\n"
            << "Do not repeat a point already made in the recent chat. "
            << "If the recent chat is looping the same idea, one short closer then stop.\n"
-           << ToneInstruction(tone) << "\n";
+           << ToneInstruction(tone) << "\n"
+           << AdultInstruction(channel);
         if (!thread.empty())
             ss << thread << "\n";
         ss << "They said: " << playerMsg << "\n"
@@ -269,7 +294,8 @@ namespace
            << "Do not use anyone's name. Do not invent a raid or a time.\n"
            << "Speak as yourself only. Never refer another player or class in town who can help.\n"
            << "Lowercase ok. Slang ok. No quotes. No /commands. No lecturing.\n"
-           << "Paladin nick is pally, never pala. Do not say this guy or this chat.\n";
+           << "Paladin nick is pally, never pala. Do not say this guy or this chat.\n"
+           << AdultInstruction(channel);
         if (!thread.empty())
             ss << thread << "\n";
         ss << "Last line: " << lastMsg << "\n"
@@ -296,7 +322,8 @@ namespace
            << "Do not say you disconnected. You are typing, so you are here.\n"
            << "Lowercase ok. Slang ok. No quotes. No /commands. No lecturing.\n"
            << "Paladin nick is pally, never pala. Do not say this guy or this chat.\n"
-           << "Do not copy the hint word for word. Capture the vibe.\n";
+           << "Do not copy the hint word for word. Capture the vibe.\n"
+           << AdultInstruction("Guild");
         if (!thread.empty())
             ss << thread << "\n";
         if (!hint.empty())
@@ -372,6 +399,8 @@ namespace
 
     ChatLineStyle StyleFor(ChatTone tone, ChatChannelSourceLocal source)
     {
+        if (BotChatBlowupActiveAny())
+            return ChatLineStyle::Flame;
         if (tone == ChatTone::Hostile || tone == ChatTone::Dismissive)
             return ChatLineStyle::Flame;
         if (source == SRC_GUILD_LOCAL || source == SRC_OFFICER_LOCAL)

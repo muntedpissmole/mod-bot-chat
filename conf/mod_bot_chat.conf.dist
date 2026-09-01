@@ -49,6 +49,22 @@ BotChat.RandomChatterBotCommentChance = 18
 BotChat.EnableGuildRandomAmbientChatter = 1
 BotChat.GuildRandomChatterChance = 12
 BotChat.ScaleWithPopulation = 1
+# Late-night register: swearing in General/guild after this local hour.
+# Ramps through the first hour, salt mouths first. Sunday starts an hour later.
+# Bots still do not slur first. 0 = off.
+BotChat.AdultEnable = 1
+BotChat.AdultHour = 21
+# 0 = current room. 1 = loot/parse/RMT/sub salt (anytime).
+# 2 = identity pile-ons after AdultHour. 3 = KYS/doxx/slur-first plus LGBT/trans pile-on after AdultHour.
+# 2 and 3 are canned. The model does not write those.
+# Default 0. Bots still do not slur first below 3.
+BotChat.Toxicity = 0
+# Once per evening, a General argument may explode into a ~10 min free-for-all
+# at max register (swearing, tox 3, CAPS). Same floor as AdultHour (9pm,
+# Sunday 10pm) so kids do not see it. Chance is the roll that evening is even
+# eligible; a real fight still has to spark. 0 = off.
+BotChat.BlowupChance = 28
+BotChat.BlowupSeconds = 600
 BotChat.EnableChannelThreads = 1
 BotChat.ChannelThreadMaxLines = 48
 BotChat.TopicIdleSeconds = 180

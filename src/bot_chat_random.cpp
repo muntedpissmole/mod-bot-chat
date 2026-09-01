@@ -41,6 +41,7 @@
 #include "SharedDefines.h"
 #include "Group.h"
 #include "Creature.h"
+#include "AreaDefines.h"
 #include <mutex>
 
 BotChatRandom::BotChatRandom() : WorldScript("BotChatRandom") {}
@@ -61,6 +62,8 @@ namespace
         Class,
         Dungeon,
         Dribble,
+        Party,
+        Rare,
         Silence
     };
 
@@ -98,6 +101,72 @@ namespace
 
     std::mutex g_AmbientTopicMutex;
     std::unordered_map<std::string, time_t> g_LastNewTopicAt;
+
+    struct RareDef
+    {
+        uint32 entry;
+        uint32 zoneId;
+        char const* nick;
+    };
+
+    RareDef const kRares[] = {
+        { 32491, AREA_THE_STORM_PEAKS, "tlpd" },
+        { 35189, AREA_THE_STORM_PEAKS, "skoll" },
+        { 32517, AREA_SHOLAZAR_BASIN, "loque" },
+        { 33776, AREA_ZUL_DRAK, "gondria" },
+        { 38453, AREA_GRIZZLY_HILLS, "arcturis" }
+    };
+
+    std::mutex g_RareMutex;
+    time_t g_RareScanAt = 0;
+    std::unordered_map<uint32, std::string> g_LiveRareByZone;
+
+    uint32 LiveZoneId(Player* p);
+
+    bool ZoneWatchesRares(uint32 zoneId)
+    {
+        for (RareDef const& rare : kRares)
+        {
+            if (rare.zoneId == zoneId)
+                return true;
+        }
+        return false;
+    }
+
+    std::string LiveRareNick(Player* bot)
+    {
+        if (!bot || !ZoneWatchesRares(LiveZoneId(bot)))
+            return "";
+
+        time_t const now = time(nullptr);
+        std::lock_guard<std::mutex> lock(g_RareMutex);
+        if (!g_RareScanAt || difftime(now, g_RareScanAt) >= 15.0)
+        {
+            g_RareScanAt = now;
+            g_LiveRareByZone.clear();
+            Map* map = bot->GetMap();
+            if (map)
+            {
+                for (auto const& pair : map->GetCreatureBySpawnIdStore())
+                {
+                    Creature* c = pair.second;
+                    if (!c || !c->IsAlive())
+                        continue;
+                    uint32 const cZone = c->GetZoneId();
+                    for (RareDef const& rare : kRares)
+                    {
+                        if (c->GetEntry() == rare.entry && cZone == rare.zoneId)
+                            g_LiveRareByZone[rare.zoneId] = rare.nick;
+                    }
+                }
+            }
+        }
+        auto it = g_LiveRareByZone.find(LiveZoneId(bot));
+        if (it == g_LiveRareByZone.end())
+            return "";
+        return it->second;
+    }
+
     std::unordered_map<uint32, time_t> g_LastGuildAmbientAt;
 
     bool AreaIsCapital(uint32 zoneId)
@@ -291,6 +360,8 @@ namespace
 
     uint32 NextContinueDelay(std::string const& threadKey)
     {
+        if (BotChatBlowupActive(threadKey))
+            return urand(3, 8);
         if (threadKey.rfind("guild:", 0) == 0)
             return NextGuildDelay();
         uint32 const maxTrail = GetThreadMaxTrail(threadKey);
@@ -326,6 +397,29 @@ namespace
         }
     }
 
+    void NudgeBlowupMates(Player* speaker, std::string const& threadKey)
+    {
+        if (!speaker || !BotChatBlowupActive(threadKey))
+            return;
+        time_t const now = time(nullptr);
+        uint32 const zone = LiveZoneId(speaker);
+        uint32 const mapId = speaker->GetMapId();
+        for (auto const& pair : ObjectAccessor::GetPlayers())
+        {
+            Player* bot = pair.second;
+            if (!bot || bot == speaker || !bot->IsInWorld())
+                continue;
+            if (!PlayerbotsMgr::instance().GetPlayerbotAI(bot))
+                continue;
+            if (bot->GetMapId() != mapId || LiveZoneId(bot) != zone)
+                continue;
+            uint64_t const id = bot->GetGUID().GetRawValue();
+            auto it = nextRandomChatTime.find(id);
+            if (it == nextRandomChatTime.end() || it->second > now + 8)
+                nextRandomChatTime[id] = now + urand(2, 8);
+        }
+    }
+
     bool TopicRecentlyOpened(const std::string& key, int cooldownSeconds)
     {
         if (key.empty())
@@ -346,7 +440,8 @@ namespace
         g_LastNewTopicAt[key] = time(nullptr);
     }
 
-    AmbientPick PickAmbientSeed(Player* bot, const std::string& threadKey, bool threadActive, bool inGuild)
+    AmbientPick PickAmbientSeed(Player* bot, const std::string& threadKey, bool threadActive, bool inGuild,
+                                bool inParty)
     {
         AmbientPick pick;
         uint32 continueChance = g_ContinueTopicChance;
@@ -367,6 +462,9 @@ namespace
             pick.lastSpeaker = target.speaker;
             pick.lastSpeakerIsBot = target.isBot;
             pick.topicId = target.topicId;
+            if (!inGuild)
+                BotChatMaybeIgniteBlowup(threadKey, last);
+            bool const melee = !inGuild && BotChatBlowupActive(threadKey);
             uint32 trail = target.topicId ? GetTopicTrail(threadKey, target.topicId)
                                           : CountTrailingBotLines(threadKey);
             uint32 maxTrail = target.topicId
@@ -374,25 +472,31 @@ namespace
                 : EnsureThreadMaxTrail(threadKey, engaged, inGuild);
             if (!maxTrail)
                 maxTrail = 2;
-            if (engaged)
-                continueChance = 75;
-            if (inGuild && !engaged)
-                continueChance = popPct >= 70 ? 72 : 55;
-            else if (maxTrail >= 8)
-                continueChance = engaged ? 88 : 82;
-            else if (maxTrail >= 4)
-                continueChance = engaged ? 75 : 60;
-            if (maxTrail > trail && maxTrail - trail == 1)
-                continueChance = inGuild ? 50 : 45;
+            if (melee)
+                continueChance = 94;
+            else
+            {
+                if (engaged)
+                    continueChance = 75;
+                if (inGuild && !engaged)
+                    continueChance = popPct >= 70 ? 72 : 55;
+                else if (maxTrail >= 8)
+                    continueChance = engaged ? 88 : 82;
+                else if (maxTrail >= 4)
+                    continueChance = engaged ? 75 : 60;
+                if (maxTrail > trail && maxTrail - trail == 1)
+                    continueChance = inGuild ? 50 : 45;
+            }
 
-            bool const blocked = PlayerSpokeRecently(threadKey, 25) || ThreadLooksLooped(threadKey) ||
+            bool const blocked = PlayerSpokeRecently(threadKey, 25) ||
+                                 (!melee && ThreadLooksLooped(threadKey)) ||
                                  IsAck(last) || IsDismissal(last) || LooksLikeAddonAnnounce(last) ||
                                  (IsShortFollowUp(last) && GetLastPlayerHelpQuery(threadKey).empty() &&
                                   !LooksLikeDribble(last) && !IsHostileTalk(last));
             SocialAct const lastAct = DetectSocialAct(last);
             bool const socialStop = lastAct == SocialAct::Greeting || lastAct == SocialAct::Farewell ||
                                     lastAct == SocialAct::Brb || lastAct == SocialAct::WelcomeBack;
-            bool const canContinue = !blocked && !socialStop && trail < maxTrail;
+            bool const canContinue = !blocked && !socialStop && (melee || trail < maxTrail);
 
             if (PlayerSpokeRecently(threadKey, 25))
             {
@@ -421,7 +525,7 @@ namespace
             }
             else if (canContinue && urand(0, 99) < continueChance)
             {
-                if (urand(0, 99) < 18 && CountLiveTopics(threadKey) < 2)
+                if (!melee && urand(0, 99) < 18 && CountLiveTopics(threadKey) < 2)
                     overlap = true;
             }
             else if (urand(0, 99) < 42 && CountLiveTopics(threadKey) < 2)
@@ -435,6 +539,16 @@ namespace
             if (!overlap && !handoff)
             {
                 pick.seed = AmbientSeed::Continue;
+                if (inParty)
+                {
+                    pick.canned = PickAmbientPartyLine(bot, threadKey);
+                    if (pick.canned.empty())
+                    {
+                        pick.seed = AmbientSeed::Silence;
+                        return pick;
+                    }
+                    return pick;
+                }
                 ChatQuery const lastQ = ParseChatQuery(last);
                 if (LooksLikeDribble(last) || IsHostileTalk(last) || LooksLikeArgument(last))
                     pick.canned = PickContinueForLast(last, threadKey, target.speaker, target.isBot,
@@ -486,7 +600,12 @@ namespace
         bool inDungeon = bot->GetMap() && bot->GetMap()->IsDungeon();
         BotChatMouth const mouth = MouthForBot(bot);
 
-        if (inGuild)
+        if (inParty)
+        {
+            options.push_back({AmbientSeed::Party, 50, "", ""});
+            options.push_back({AmbientSeed::Silence, 8, "", ""});
+        }
+        else if (inGuild)
         {
             options.push_back({AmbientSeed::Life, 20, "", ""});
 
@@ -557,6 +676,10 @@ namespace
             options.push_back({AmbientSeed::Dribble, dribbleW, cls, ""});
             options.push_back({AmbientSeed::Life, 3, "", ""});
             options.push_back({AmbientSeed::Silence, 10, "", ""});
+
+            std::string const rare = LiveRareNick(bot);
+            if (!rare.empty())
+                options.push_back({AmbientSeed::Rare, 40, rare, ""});
         }
 
         uint32 total = 0;
@@ -594,6 +717,10 @@ namespace
             pick.canned = PickAmbientDungeonLine(pick.fact, threadKey);
         else if (pick.seed == AmbientSeed::Dribble)
             pick.canned = PickAmbientDribbleLine(threadKey, pick.fact, questTitle, placeName, bot, NearbyMobName(bot));
+        else if (pick.seed == AmbientSeed::Party)
+            pick.canned = PickAmbientPartyLine(bot, threadKey);
+        else if (pick.seed == AmbientSeed::Rare)
+            pick.canned = PickAmbientRareLine(pick.fact, threadKey);
 
         if (pick.seed != AmbientSeed::Silence && pick.seed != AmbientSeed::Continue && pick.canned.empty())
             pick.seed = AmbientSeed::Silence;
@@ -675,8 +802,10 @@ void BotChatRandom::HandleRandomChatter()
             }
         }
 
+        bool const groupedWithPlayer = bot->GetGroup() && GroupHasRealPlayer(bot->GetGroup()) &&
+                                       !g_DisableForParty;
         // Guild bots with real guild members online can bypass proximity requirement
-        bool allowWithoutProximity = guild && hasRealPlayerInGuild;
+        bool allowWithoutProximity = (guild && hasRealPlayerInGuild) || groupedWithPlayer;
         if (!allowWithoutProximity && !nearRealPlayer)
             continue;
 
@@ -697,13 +826,50 @@ void BotChatRandom::HandleRandomChatter()
             // Guild-routed lines use GuildRandomChatterChance instead of the
             // general comment chance. Never stack both, and do not reset the
             // per-bot timer on a failed roll (retry next tick).
-            bool const inGuild = hasRealPlayerInGuild && g_EnableGuildRandomAmbientChatter;
+            bool inGuild = hasRealPlayerInGuild && g_EnableGuildRandomAmbientChatter;
+            bool const inDungeonNow = bot->GetMap() && bot->GetMap()->IsDungeon();
+            bool const preferParty = groupedWithPlayer &&
+                                     (inDungeonNow || bot->IsInCombat() || !inGuild || urand(0, 99) < 70);
+            if (preferParty)
+                inGuild = false;
             uint32 const popPct = BotChatPopulationPct();
             BotChatMouth const mouth = MouthForBot(bot);
-            if (inGuild && popPct >= 70)
+
+            ChatChannelSourceLocal ambientSource = SRC_SAY_LOCAL;
+            Channel* ambientChannel = nullptr;
+            std::string ambientThreadKey = GuessAmbientThreadKey(bot, ambientSource, ambientChannel);
+            bool threadActive = g_EnableChannelThreads && ThreadIsActive(ambientThreadKey, g_TopicIdleSeconds);
+
+            if (preferParty)
+            {
+                ambientSource = bot->GetGroup() && bot->GetGroup()->isRaidGroup() ? SRC_RAID_LOCAL
+                                                                                : SRC_PARTY_LOCAL;
+                ambientChannel = nullptr;
+                ambientThreadKey = MakeThreadKey(bot, ambientSource, nullptr);
+                threadActive = g_EnableChannelThreads && ThreadIsActive(ambientThreadKey, g_TopicIdleSeconds);
+            }
+            else if (inGuild)
+            {
+                ambientSource = SRC_GUILD_LOCAL;
+                ambientChannel = nullptr;
+                ambientThreadKey = MakeThreadKey(bot, SRC_GUILD_LOCAL, nullptr);
+                threadActive = g_EnableChannelThreads && ThreadIsActive(ambientThreadKey, g_TopicIdleSeconds);
+            }
+
+            if (preferParty)
+            {
+                if (mouth == BotChatMouth::Quiet && urand(0, 99) < 40)
+                    continue;
+            }
+            else if (inGuild && popPct >= 70)
             {
                 // Peak guild is throttled by the 10–30s room gap, not a 12% roll.
                 if (mouth == BotChatMouth::Quiet && urand(0, 99) < 50)
+                    continue;
+            }
+            else if (!inGuild && BotChatBlowupActive(ambientThreadKey))
+            {
+                if (mouth == BotChatMouth::Quiet && urand(0, 99) < 40)
                     continue;
             }
             else
@@ -722,19 +888,6 @@ void BotChatRandom::HandleRandomChatter()
                     continue;
             }
 
-            ChatChannelSourceLocal ambientSource = SRC_SAY_LOCAL;
-            Channel* ambientChannel = nullptr;
-            std::string ambientThreadKey = GuessAmbientThreadKey(bot, ambientSource, ambientChannel);
-            bool threadActive = g_EnableChannelThreads && ThreadIsActive(ambientThreadKey, g_TopicIdleSeconds);
-
-            if (inGuild)
-            {
-                ambientSource = SRC_GUILD_LOCAL;
-                ambientChannel = nullptr;
-                ambientThreadKey = MakeThreadKey(bot, SRC_GUILD_LOCAL, nullptr);
-                threadActive = g_EnableChannelThreads && ThreadIsActive(ambientThreadKey, g_TopicIdleSeconds);
-            }
-
             if (PlayerSpokeRecently(ambientThreadKey, 25))
             {
                 nextRandomChatTime[guid] = now + NextAmbientDelay();
@@ -749,12 +902,12 @@ void BotChatRandom::HandleRandomChatter()
             }
             if (!engaged && g_PreferThreadRegulars && threadActive &&
                 !IsRecentSpeaker(ambientThreadKey, guid) &&
-                urand(0, 99) < 65)
+                urand(0, 99) < (BotChatBlowupActive(ambientThreadKey) ? 20 : 65))
             {
                 continue;
             }
 
-            AmbientPick ambient = PickAmbientSeed(bot, ambientThreadKey, threadActive, inGuild);
+            AmbientPick ambient = PickAmbientSeed(bot, ambientThreadKey, threadActive, inGuild, preferParty);
             if (ambient.seed == AmbientSeed::Silence || ambient.canned.empty())
             {
                 nextRandomChatTime[guid] = now + NextAmbientDelay();
@@ -791,7 +944,8 @@ void BotChatRandom::HandleRandomChatter()
             if (!inGuild && !ambientThreadKey.empty())
             {
                 uint32 const spoken = threadsSpokenThisTick[ambientThreadKey];
-                if (spoken >= 2 || (spoken == 1 && urand(0, 99) >= 30))
+                uint32 const cap = BotChatBlowupActive(ambientThreadKey) ? 4 : 2;
+                if (spoken >= cap || (spoken + 1 == cap && urand(0, 99) >= 40))
                 {
                     nextRandomChatTime[guid] = now + NextAmbientDelay();
                     continue;
@@ -804,7 +958,7 @@ void BotChatRandom::HandleRandomChatter()
             else if (ambient.topicId)
                 PushPendingTopic(ambientThreadKey, ambient.topicId);
 
-            if (continueTopic)
+            if (continueTopic && !preferParty)
             {
                 std::string last = ambient.lastLine;
                 if (last.empty())
@@ -817,12 +971,16 @@ void BotChatRandom::HandleRandomChatter()
                     nextRandomChatTime[guid] = now + wait;
                     if (inGuild)
                         NudgeGuildMates(bot, wait);
+                    else
+                        NudgeBlowupMates(bot, ambientThreadKey);
                     continue;
                 }
                 uint32 const wait = NextContinueDelay(ambientThreadKey);
                 nextRandomChatTime[guid] = now + wait;
                 if (inGuild)
                     NudgeGuildMates(bot, wait);
+                else
+                    NudgeBlowupMates(bot, ambientThreadKey);
                 continue;
             }
 

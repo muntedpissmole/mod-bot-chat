@@ -18,7 +18,7 @@ Feel like real WoW chat, not a bot script. Engine owns whether to talk. Local Ol
 - Do not `wb`/`hey` the real player unsolicited. If they say `hi` in the party, someone answers. Combat silence is ambient, not the party or guild they just spoke in. Same map + live zone for General. Quest lines must match this zone.
 - `PickFrom` already calls `NoteSpokenLine`. Do not check `LineRecentlySpoken` again on send or every `hi`/`ty`/`gz` is dropped.
 - Post only to `General - <live zone>`. First-General membership is stale after teleports. General may clump two lines in one tick; guild stays one. LLM busy = silence, not a second canned line on the same post.
-- Volume follows circadian random-bot count. Player-initiated replies do not.
+- Volume follows circadian random-bot count. Player-initiated replies do not. After `BotChat.AdultHour` (21, Sunday 22) ambient and LLM mix in swearing. Salt mouths first. Still no slurs first below `BotChat.Toxicity` 3. Toxicity 1 = loot/parse/RMT salt anytime. 2 = identity after AdultHour. 3 = KYS/doxx-bluff/slur-first plus LGBT/trans pile-on after AdultHour, canned only. Never bash Christianity, Jesus, the Bible, or God. Other religions are fair game at 2+. At most one General blowup per evening (`BlowupChance`/`BlowupSeconds`): a live argument may explode into a ~10 min free-for-all at max register (swear + tox 3 canned + CAPS), ignoring the daytime knobs. Still no Christianity bash. Not guaranteed. Not guild.
 - Runtime conf: `env/dist/etc/modules/mod_bot_chat.conf`. Dist: `conf/mod_bot_chat.conf.dist`.
 - Trade ads: mod-trade-chat. Pass-by `/hi`: mod-well-met.
 - Do not compile `mod-ollama-chat` alongside this (`MODULE_MOD-OLLAMA-CHAT=disabled`).

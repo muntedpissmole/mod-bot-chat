@@ -37,6 +37,11 @@ bool       g_EnableSocialConventions = true;
 uint32_t   g_SocialCueSeconds  = 45;
 uint32_t   g_RandomChatterBotCommentChance   = 18;
 bool        g_ScaleWithPopulation            = true;
+bool        g_AdultEnable                    = true;
+uint32_t    g_AdultHour                      = 21;
+uint32_t    g_Toxicity                       = 0;
+uint32_t    g_BlowupChance                   = 28;
+uint32_t    g_BlowupSeconds                  = 600;
 uint32_t   g_RandomChatterMaxBotsPerPlayer   = 2;
 uint32_t   g_EventChatterBotCommentChance    = 15;
 uint32_t   g_EventChatterBotSelfCommentChance = 5;
@@ -532,6 +537,21 @@ void LoadBotChatConfig()
     g_TopicIdleSeconds                = sConfigMgr->GetOption<uint32_t>("BotChat.TopicIdleSeconds", 180);
     g_ContinueTopicChance             = sConfigMgr->GetOption<uint32_t>("BotChat.ContinueTopicChance", 40);
     g_ScaleWithPopulation             = sConfigMgr->GetOption<bool>("BotChat.ScaleWithPopulation", true);
+    g_AdultEnable                     = sConfigMgr->GetOption<bool>("BotChat.AdultEnable", true);
+    g_AdultHour                       = sConfigMgr->GetOption<uint32_t>("BotChat.AdultHour", 21);
+    if (g_AdultHour > 23)
+        g_AdultHour = 21;
+    g_Toxicity                        = sConfigMgr->GetOption<uint32_t>("BotChat.Toxicity", 0);
+    if (g_Toxicity > 3)
+        g_Toxicity = 3;
+    g_BlowupChance                    = sConfigMgr->GetOption<uint32_t>("BotChat.BlowupChance", 28);
+    if (g_BlowupChance > 100)
+        g_BlowupChance = 100;
+    g_BlowupSeconds                   = sConfigMgr->GetOption<uint32_t>("BotChat.BlowupSeconds", 600);
+    if (g_BlowupSeconds < 120)
+        g_BlowupSeconds = 120;
+    if (g_BlowupSeconds > 1800)
+        g_BlowupSeconds = 1800;
     g_PreferThreadRegulars            = sConfigMgr->GetOption<bool>("BotChat.PreferThreadRegulars", true);
     g_ChannelThreadHeaderTemplate     = sConfigMgr->GetOption<std::string>("BotChat.ChannelThreadHeaderTemplate", "RECENT CHANNEL CHAT (continue this conversation, do not greet or start a new topic):\n");
     g_ChannelThreadLineTemplate       = sConfigMgr->GetOption<std::string>("BotChat.ChannelThreadLineTemplate", "[{speaker}]: {message}\n");
@@ -687,7 +707,7 @@ void LoadBotChatConfig()
              "[Bot Chat] Config loaded: Enabled = {}, LLM = {}, SayDistance = {}, YellDistance = {}, "
              "Reply Chances - Say: P{}%/B{}%, Channel: P{}%/B{}%, Party: P{}%/B{}%, Guild: P{}%/B{}%, MaxBotsToPick = {}, "
              "Url = {}, Model = {}, MaxConcurrentQueries = {}, EnableRandomChatter = {}, MinRandInt = {}, MaxRandInt = {}, RandomChatterRealPlayerDistance = {}, "
-             "RandomChatterBotCommentChance = {}. MaxConcurrentQueries = {}. Extra blacklist commands: {}",
+             "RandomChatterBotCommentChance = {}. Adult = {} after {}. Toxicity = {}. Blowup = {}%/{}s. MaxConcurrentQueries = {}. Extra blacklist commands: {}",
              g_Enable, g_EnableLLM, g_SayDistance, g_YellDistance,
              g_PlayerReplyChance_Say, g_BotReplyChance_Say,
              g_PlayerReplyChance_Channel, g_BotReplyChance_Channel,
@@ -696,7 +716,8 @@ void LoadBotChatConfig()
              g_MaxBotsToPick,
              g_OllamaUrl, g_OllamaModel, g_MaxConcurrentQueries,
              g_EnableRandomChatter, g_MinRandomInterval, g_MaxRandomInterval, g_RandomChatterRealPlayerDistance,
-             g_RandomChatterBotCommentChance, g_MaxConcurrentQueries, extraBlacklist);
+             g_RandomChatterBotCommentChance, g_AdultEnable, g_AdultHour, g_Toxicity,
+             g_BlowupChance, g_BlowupSeconds, g_MaxConcurrentQueries, extraBlacklist);
 }
 
 void LoadPersonalityTemplatesFromDB()

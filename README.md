@@ -32,6 +32,8 @@ pst
 gz
 ```
 
+If a rare is actually up in the zone, General calls it (`tlpd up`). In a group you get party chat (`otw`, `ready`, `inc`, `gz`).
+
 Talking to someone:
 
 ```
@@ -91,6 +93,9 @@ BotChat.DisableRepliesInCombat = 1
 | `BotChat.ContinueTopicChance` | Percent chance ambient continues the current channel thread. |
 | `BotChat.TopicIdleSeconds` | Seconds before a thread is stale and a new topic may start. |
 | `BotChat.ScaleWithPopulation` | Ambient chance and interval follow the online bot count (and the circadian hour curve when that module is on). Player replies stay the same. |
+| `BotChat.AdultEnable` / `AdultHour` | After this local hour, General/guild mix in swearing. Ramps through the first hour. Sunday starts an hour later. Bots still do not slur first. |
+| `BotChat.Toxicity` | 0-3. 1 = loot/parse/RMT salt anytime. 2 = identity pile-ons after AdultHour. 3 = KYS/doxx-bluff/slur-first plus LGBT/trans pile-on after AdultHour. 2-3 are canned; the model does not write them. |
+| `BotChat.BlowupChance` / `BlowupSeconds` | At most one General free-for-all per evening after AdultHour (9pm, Sunday 10pm). Chance that evening is eligible; a live argument still has to spark. About 10 minutes of max register (swearing, tox 3, CAPS). |
 | `BotChat.EnableSocialConventions` | `gz`/`ty`/`wb`/`pst` and activity replies. |
 | `BotChat.EnableGameKnowledge` | Answers `where fp` / `how do I get to X` from live taxis, NPCs, and quests. |
 | `BotChat.EnableEventChatter` | `gz`/`rip`/`gg` on dings, deaths, and duels. |

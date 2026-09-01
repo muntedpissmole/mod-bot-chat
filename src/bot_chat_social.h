@@ -74,6 +74,14 @@ bool LooksLikeArgument(std::string const& message);
 BotChatMouth MouthForBot(Player* bot);
 bool UsesProfanity(std::string const& message);
 bool UsesSlur(std::string const& message);
+// 0-100. Chance the late-night swearing pool should fire. 0 before AdultHour.
+uint32 BotChatAdultMix();
+uint32 BotChatEffectiveToxicity();
+bool BotChatBlowupActive(std::string const& threadKey = {});
+bool BotChatBlowupActiveAny();
+void BotChatMaybeIgniteBlowup(std::string const& threadKey, std::string const& lastLine);
+// Caps / !!! when a blowup is live. No-op otherwise.
+std::string BotChatBlowupYell(std::string line);
 uint32 BotChatPopulationPct();
 uint32 ScaleChatChance(uint32 chance);
 uint32 ScaleChatInterval(uint32 seconds);
@@ -93,6 +101,8 @@ std::string PickAmbientGroupLine(bool inGuild, std::string const& guildie, std::
                                  std::string const& zone = {});
 std::string PickAmbientClassLine(std::string const& className, std::string const& threadKey = {});
 std::string PickAmbientDungeonLine(std::string const& dungeon, std::string const& threadKey = {});
+std::string PickAmbientPartyLine(Player* bot, std::string const& threadKey = {});
+std::string PickAmbientRareLine(std::string const& nick, std::string const& threadKey = {});
 std::string PickGroupReply(std::string const& threadKey = {}, bool inParty = false, Player* bot = nullptr);
 bool IsGroupAsk(std::string const& message);
 bool IsGroupJoin(std::string const& message);

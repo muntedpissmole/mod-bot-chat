@@ -808,7 +808,8 @@ namespace
 
     std::string AddressBounce(std::string line, std::string speaker, bool speakerIsBot)
     {
-        if (line.empty() || !speakerIsBot || speaker.empty() || urand(0, 99) >= 22)
+        uint32 const nameChance = BotChatBlowupActiveAny() ? 55 : 22;
+        if (line.empty() || !speakerIsBot || speaker.empty() || urand(0, 99) >= nameChance)
             return line;
         if (HasWord(ToLowerCopy(line), "reported") || HasWord(ToLowerCopy(line), "report"))
             return line;
@@ -870,6 +871,32 @@ namespace
         }
         return false;
     }
+
+    std::string TryPickCannedPool(char const* const* lines, size_t count,
+                                 std::string const& threadKey, bool capital)
+    {
+        std::vector<std::string> pool;
+        for (size_t i = 0; i < count; ++i)
+        {
+            if (!lines[i] || !lines[i][0])
+                continue;
+            if (!threadKey.empty() && LineTooSimilarToRecent(threadKey, lines[i]))
+                continue;
+            if (LineRecentlySpoken(lines[i]))
+                continue;
+            if (DribbleFitsRoom(lines[i], capital))
+                pool.push_back(lines[i]);
+        }
+        if (pool.empty())
+            return "";
+        std::string picked = pool[urand(0, pool.size() - 1)];
+        picked = MessyChat(picked);
+        picked = BotChatBlowupYell(picked);
+        if (picked.empty())
+            return "";
+        NoteSpokenLine(picked);
+        return picked;
+    }
 }
 
 bool LooksLikeArgument(std::string const& message)
@@ -907,6 +934,194 @@ BotChatMouth MouthForBot(Player* bot)
     return BotChatMouth::Mix;
 }
 
+uint32 BotChatAdultMix()
+{
+    if (BotChatBlowupActiveAny())
+        return 90;
+    if (!g_AdultEnable)
+        return 0;
+
+    uint32 start = g_AdultHour;
+    if (start > 23)
+        start = 21;
+
+    time_t now = time(nullptr);
+    std::tm local{};
+    localtime_r(&now, &local);
+    // Sunday school night: kick in an hour later so 9pm is still the daytime register.
+    if (local.tm_wday == 0)
+        start = std::min<uint32>(23, start + 1);
+
+    int const hour = local.tm_hour;
+    int const min = local.tm_min;
+    int const nowM = hour * 60 + min;
+    int const startM = static_cast<int>(start) * 60;
+    int past = -1;
+    if (nowM >= startM)
+        past = nowM - startM;
+    else if (hour < 6)
+        past = (24 * 60 - startM) + nowM;
+    if (past < 0)
+        return 0;
+    if (past < 60)
+        return 15 + static_cast<uint32>(past);
+    if (hour >= 2 && hour < 6)
+        return static_cast<uint32>(75 * (6 - hour) / 4);
+    return 75;
+}
+
+uint32 BotChatEffectiveToxicity()
+{
+    if (BotChatBlowupActiveAny())
+        return 3;
+    return g_Toxicity > 3 ? 3 : g_Toxicity;
+}
+
+namespace
+{
+    struct BlowupState
+    {
+        std::mutex mutex;
+        int eveningKey = -1;
+        bool rolled = false;
+        bool allowed = false;
+        bool spent = false;
+        time_t until = 0;
+        std::string key;
+    };
+    BlowupState g_Blowup;
+
+    int BlowupEveningKey(std::tm const& local)
+    {
+        int yday = local.tm_yday;
+        int year = local.tm_year;
+        if (local.tm_hour < 6)
+        {
+            --yday;
+            if (yday < 0)
+            {
+                yday = 365;
+                --year;
+            }
+        }
+        return year * 1000 + yday;
+    }
+
+    bool BlowupIsEveningHour(int hour, int wday)
+    {
+        // Same floor as AdultHour so a 7pm pile-on cannot dump tox 3 on kids.
+        uint32 start = g_AdultHour;
+        if (start > 23)
+            start = 21;
+        if (wday == 0)
+            start = std::min<uint32>(23, start + 1);
+        return hour >= static_cast<int>(start) || hour < 2;
+    }
+
+    void BlowupRollIfNeeded()
+    {
+        if (!g_BlowupChance)
+            return;
+        time_t now = time(nullptr);
+        std::tm local{};
+        localtime_r(&now, &local);
+        if (!BlowupIsEveningHour(local.tm_hour, local.tm_wday))
+            return;
+        int const key = BlowupEveningKey(local);
+        std::lock_guard<std::mutex> lock(g_Blowup.mutex);
+        if (g_Blowup.eveningKey == key)
+            return;
+        g_Blowup.eveningKey = key;
+        g_Blowup.rolled = true;
+        g_Blowup.spent = false;
+        g_Blowup.until = 0;
+        g_Blowup.key.clear();
+        g_Blowup.allowed = BlowupIsEveningHour(local.tm_hour, local.tm_wday) &&
+                           urand(0, 99) < g_BlowupChance;
+        if (g_DebugEnabled)
+            LOG_INFO("server.loading", "[Bot Chat] Blowup {} tonight",
+                     g_Blowup.allowed ? "eligible" : "not rolling");
+    }
+}
+
+bool BotChatBlowupActive(std::string const& threadKey)
+{
+    time_t const now = time(nullptr);
+    std::lock_guard<std::mutex> lock(g_Blowup.mutex);
+    if (!g_Blowup.until || now >= g_Blowup.until)
+        return false;
+    if (threadKey.empty())
+        return true;
+    return g_Blowup.key == threadKey;
+}
+
+bool BotChatBlowupActiveAny()
+{
+    return BotChatBlowupActive({});
+}
+
+std::string BotChatBlowupYell(std::string line)
+{
+    if (line.empty() || !BotChatBlowupActiveAny())
+        return line;
+    uint32 const r = urand(0, 99);
+    if (r < 22)
+        return line;
+    for (char& c : line)
+        c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+    if (r >= 82 && line.find('!') == std::string::npos)
+        line += "!!!";
+    else if (r >= 62 && line.find('!') == std::string::npos)
+        line += "!";
+    else if (r >= 48 && line.find('?') == std::string::npos)
+        line += "??";
+    return line;
+}
+
+void BotChatMaybeIgniteBlowup(std::string const& threadKey, std::string const& lastLine)
+{
+    if (!g_BlowupChance || threadKey.empty() || lastLine.empty())
+        return;
+    if (threadKey.rfind("chan:", 0) != 0)
+        return;
+    if (!LooksLikeArgument(lastLine) && !LooksLikeDribble(lastLine) && !IsHostileTalk(lastLine))
+        return;
+
+    BlowupRollIfNeeded();
+    time_t now = time(nullptr);
+    std::tm local{};
+    localtime_r(&now, &local);
+    if (!BlowupIsEveningHour(local.tm_hour, local.tm_wday))
+        return;
+
+    uint32 chance = 12;
+    std::string const lower = ToLowerCopy(lastLine);
+    if (lower.find("fight me") != std::string::npos ||
+        lower.find("change my mind") != std::string::npos ||
+        lower.find("die on this hill") != std::string::npos)
+        chance = 28;
+
+    std::lock_guard<std::mutex> lock(g_Blowup.mutex);
+    if (!g_Blowup.allowed || g_Blowup.spent)
+        return;
+    if (g_Blowup.until && now < g_Blowup.until)
+        return;
+    if (urand(0, 99) >= chance)
+        return;
+
+    uint32 span = g_BlowupSeconds ? g_BlowupSeconds : 600;
+    uint32 lo = span * 8 / 10;
+    uint32 hi = span * 12 / 10;
+    if (hi < lo)
+        hi = lo;
+    g_Blowup.until = now + urand(lo, hi);
+    g_Blowup.key = threadKey;
+    g_Blowup.spent = true;
+    g_Blowup.allowed = false;
+    LOG_INFO("server.loading", "[Bot Chat] Blowup ignited on {} for {}s",
+             threadKey, static_cast<unsigned>(g_Blowup.until - now));
+}
+
 std::string PickDribbleContinue(std::string const& last, std::string const& threadKey,
                                std::string const& speaker, bool speakerIsBot, uint32 topicId)
 {
@@ -931,12 +1146,14 @@ std::string PickDribbleContinue(std::string const& last, std::string const& thre
             return "";
         line = AddressBounce(line, named, namedBot);
         line = MessyChat(line);
+        line = BotChatBlowupYell(line);
         if (line.empty())
             return "";
         return line;
     };
 
-    if (HasWord(lower, "reported") || HasWord(lower, "report"))
+    bool const melee = BotChatBlowupActive(threadKey);
+    if (!melee && (HasWord(lower, "reported") || HasWord(lower, "report")))
     {
         if (urand(0, 99) < 70)
             return "";
@@ -946,8 +1163,8 @@ std::string PickDribbleContinue(std::string const& last, std::string const& thre
         }, threadKey, false, true));
     }
 
-    bool const ending = trail + 1 >= maxTrail;
-    if (ending || (trail >= 2 && urand(0, 99) < 12))
+    bool const ending = !melee && (trail + 1 >= maxTrail);
+    if (!melee && (ending || (trail >= 2 && urand(0, 99) < 12)))
         return finish(PickFrom({
             "reported", "report that", "language", "gm pls", "take it to the forums",
             "who asked", "stfu", "stay mad", "found the pally", "ok and",
@@ -962,6 +1179,30 @@ std::string PickDribbleContinue(std::string const& last, std::string const& thre
         lower.find("toc") != std::string::npos || lower.find("naxx") != std::string::npos ||
         lower.find("horde") != std::string::npos || lower.find("alliance") != std::string::npos ||
         lower.find("flying") != std::string::npos || lower.find("gold") != std::string::npos;
+    if (melee)
+    {
+        uint32 const roll = urand(0, 99);
+        if (roll < 22)
+            return finish(PickFromArray(kToxicPersonalBounces,
+                sizeof(kToxicPersonalBounces) / sizeof(kToxicPersonalBounces[0]), threadKey));
+        if (roll < 55)
+            return finish(PickFromArray(kToxicLgbtBounces,
+                sizeof(kToxicLgbtBounces) / sizeof(kToxicLgbtBounces[0]), threadKey));
+        if (roll < 72)
+            return finish(PickFromArray(kToxicIdentityBounces,
+                sizeof(kToxicIdentityBounces) / sizeof(kToxicIdentityBounces[0]), threadKey));
+        if (roll < 88)
+            return finish(PickFromArray(kAdultBounces,
+                sizeof(kAdultBounces) / sizeof(kAdultBounces[0]), threadKey));
+        if (LooksLikeArgument(last) || clustered)
+        {
+            std::string claim = PickClaimBounce(lower, threadKey);
+            if (!claim.empty())
+                return finish(claim);
+        }
+        return finish(PickFromArray(kToxicGameBounces,
+            sizeof(kToxicGameBounces) / sizeof(kToxicGameBounces[0]), threadKey));
+    }
     if (LooksLikeArgument(last) || clustered)
     {
         std::string claim = PickClaimBounce(lower, threadKey);
@@ -977,6 +1218,41 @@ std::string PickDribbleContinue(std::string const& last, std::string const& thre
             "they made it worse", "its a classic", "tell me about it"
         }, threadKey, false, true));
 
+    uint32 const tox = BotChatEffectiveToxicity();
+    bool const late = BotChatAdultMix() > 0;
+    if (tox >= 3 && late &&
+        (HasWord(lower, "kys") || lower.find("kill yourself") != std::string::npos ||
+         lower.find("off yourself") != std::string::npos || lower.find("dox") != std::string::npos ||
+         lower.find("where you live") != std::string::npos || lower.find("hitler") != std::string::npos))
+        return finish(PickFromArray(kToxicPersonalBounces,
+            sizeof(kToxicPersonalBounces) / sizeof(kToxicPersonalBounces[0]), threadKey));
+    if (tox >= 3 && late &&
+        (HasWord(lower, "gay") || HasWord(lower, "faggot") || lower.find("tranny") != std::string::npos ||
+         lower.find("trans") != std::string::npos || lower.find("they/them") != std::string::npos ||
+         lower.find("pronoun") != std::string::npos || lower.find("lgbt") != std::string::npos ||
+         lower.find("pride") != std::string::npos))
+        return finish(PickFromArray(kToxicLgbtBounces,
+            sizeof(kToxicLgbtBounces) / sizeof(kToxicLgbtBounces[0]), threadKey));
+    if (tox >= 2 && late &&
+        (lower.find("squeaker") != std::string::npos || lower.find("girlfriend") != std::string::npos ||
+         lower.find("women") != std::string::npos || HasWord(lower, "gay") ||
+         lower.find("farmer") != std::string::npos || lower.find("accent") != std::string::npos ||
+         lower.find("english") != std::string::npos || lower.find("vent") != std::string::npos))
+        return finish(PickFromArray(kToxicIdentityBounces,
+            sizeof(kToxicIdentityBounces) / sizeof(kToxicIdentityBounces[0]), threadKey));
+    if (tox >= 1 &&
+        (lower.find("ninja") != std::string::npos || lower.find("parse") != std::string::npos ||
+         lower.find("gdkp") != std::string::npos || lower.find("gold") != std::string::npos ||
+         lower.find("rmt") != std::string::npos || lower.find("boosted") != std::string::npos ||
+         lower.find("sub") != std::string::npos || lower.find("reserved") != std::string::npos ||
+         lower.find("loot council") != std::string::npos))
+        return finish(PickFromArray(kToxicGameBounces,
+            sizeof(kToxicGameBounces) / sizeof(kToxicGameBounces[0]), threadKey));
+
+    uint32 const adult = BotChatAdultMix();
+    if (adult && urand(0, 99) < adult)
+        return finish(PickFromArray(kAdultBounces,
+                                    sizeof(kAdultBounces) / sizeof(kAdultBounces[0]), threadKey));
     return finish(PickFromArray(kDribbleBounces,
                                 sizeof(kDribbleBounces) / sizeof(kDribbleBounces[0]), threadKey));
 }
@@ -1117,6 +1393,14 @@ std::string PickAmbientLifeLine(std::string const& threadKey)
 
 std::string PickAmbientGuildLine(std::string const& threadKey)
 {
+    uint32 const adult = BotChatAdultMix();
+    if (adult && urand(0, 99) < adult / 2)
+    {
+        std::string const line = PickFromArray(kAdultGuild,
+            sizeof(kAdultGuild) / sizeof(kAdultGuild[0]), threadKey);
+        if (!line.empty())
+            return line;
+    }
     return PickFrom({
         "whats everyone up to", "anyone on", "good time to grind tbh",
         "i got a bit if anyone needs a hand", "loot was decent for once",
@@ -1163,6 +1447,39 @@ bool LooksLikeDribble(std::string const& message)
         for (char const* line : kDribbleBounces)
             if (line && line[0])
                 lines.insert(ToLowerCopy(line));
+        for (char const* line : kAdultOpeners)
+            if (line && line[0])
+                lines.insert(ToLowerCopy(line));
+        for (char const* line : kAdultBounces)
+            if (line && line[0])
+                lines.insert(ToLowerCopy(line));
+        for (char const* line : kAdultGuild)
+            if (line && line[0])
+                lines.insert(ToLowerCopy(line));
+        for (char const* line : kToxicGame)
+            if (line && line[0])
+                lines.insert(ToLowerCopy(line));
+        for (char const* line : kToxicGameBounces)
+            if (line && line[0])
+                lines.insert(ToLowerCopy(line));
+        for (char const* line : kToxicIdentity)
+            if (line && line[0])
+                lines.insert(ToLowerCopy(line));
+        for (char const* line : kToxicIdentityBounces)
+            if (line && line[0])
+                lines.insert(ToLowerCopy(line));
+        for (char const* line : kToxicPersonal)
+            if (line && line[0])
+                lines.insert(ToLowerCopy(line));
+        for (char const* line : kToxicPersonalBounces)
+            if (line && line[0])
+                lines.insert(ToLowerCopy(line));
+        for (char const* line : kToxicLgbt)
+            if (line && line[0])
+                lines.insert(ToLowerCopy(line));
+        for (char const* line : kToxicLgbtBounces)
+            if (line && line[0])
+                lines.insert(ToLowerCopy(line));
         return lines;
     }();
     if (pool.count(lower))
@@ -1172,7 +1489,10 @@ bool LooksLikeDribble(std::string const& message)
             "ninja", "pug", "pugs", "nerf", "buff", "gkick",
             "goldsellers", "dumpster", "overpowered", "broken", "patch",
             "aids", "reported", "report", "uninstall", "leeroy", "l2p",
-            "noob", "nub", "pwn", "owned", "reroll", "goldshire", "mankrik"
+            "noob", "nub", "pwn", "owned", "reroll", "goldshire", "mankrik",
+            "fuck", "fucking", "shit", "bullshit", "asshole", "damn",
+            "ninja", "parse", "gdkp", "rmt", "kys", "squeaker",
+            "tranny", "faggot", "lgbt", "pronouns"
         }))
         return true;
     if (lower.find("easy mode") != std::string::npos ||
@@ -1312,6 +1632,59 @@ std::string PickAmbientDribbleLine(std::string const& threadKey, std::string con
     // Named live slots are a garnish. The wild pool is the room.
     if (!preferred.empty() && (rest.empty() || urand(0, 99) < 25))
         pool = &preferred;
+
+    uint32 const tox = BotChatEffectiveToxicity();
+    uint32 hot = tox ? 12 * tox : 0;
+    if (BotChatBlowupActiveAny())
+        hot = 88;
+    if (hot && bot)
+    {
+        BotChatMouth const mouth = MouthForBot(bot);
+        if (mouth == BotChatMouth::Salt)
+            hot = std::min<uint32>(90, hot + 15);
+        else if (mouth == BotChatMouth::Quiet)
+            hot /= 3;
+    }
+    if (hot && urand(0, 99) < hot)
+    {
+        bool const late = BotChatAdultMix() > 0;
+        uint32 const roll = urand(0, 99);
+        std::string picked;
+        if (tox >= 3 && late && roll < 28)
+            picked = TryPickCannedPool(kToxicPersonal, sizeof(kToxicPersonal) / sizeof(kToxicPersonal[0]),
+                                       threadKey, capital);
+        else if (tox >= 3 && late && roll < 62)
+            picked = TryPickCannedPool(kToxicLgbt, sizeof(kToxicLgbt) / sizeof(kToxicLgbt[0]),
+                                       threadKey, capital);
+        else if (tox >= 2 && late && roll < 78)
+            picked = TryPickCannedPool(kToxicIdentity, sizeof(kToxicIdentity) / sizeof(kToxicIdentity[0]),
+                                       threadKey, capital);
+        else if (tox >= 1)
+            picked = TryPickCannedPool(kToxicGame, sizeof(kToxicGame) / sizeof(kToxicGame[0]),
+                                       threadKey, capital);
+        if (!picked.empty())
+            return picked;
+    }
+
+    uint32 adultMix = BotChatAdultMix();
+    if (adultMix && bot)
+    {
+        BotChatMouth const mouth = MouthForBot(bot);
+        if (mouth == BotChatMouth::Salt)
+            adultMix = std::min<uint32>(95, adultMix + 18);
+        else if (mouth == BotChatMouth::Quiet)
+            adultMix /= 3;
+        else if (mouth == BotChatMouth::Lfg)
+            adultMix /= 2;
+    }
+    if (adultMix && urand(0, 99) < adultMix)
+    {
+        std::string const picked = TryPickCannedPool(kAdultOpeners,
+            sizeof(kAdultOpeners) / sizeof(kAdultOpeners[0]), threadKey, capital);
+        if (!picked.empty())
+            return picked;
+    }
+
     if (pool->empty())
         return "";
     std::string picked = (*pool)[urand(0, pool->size() - 1)];
@@ -1454,6 +1827,30 @@ std::string PickAmbientClassLine(std::string const& className, std::string const
         "hate this spec honestly", "respec soon i think",
         "might reroll lol", "rotation is boring"
     }, threadKey, false, true);
+}
+
+std::string PickAmbientPartyLine(Player* bot, std::string const& threadKey)
+{
+    if (bot && bot->IsInCombat())
+        return PickFrom({
+            "inc", "adds", "behind", "on me", "wait", "cc",
+            "i got this", "spread", "dont stand in that"
+        }, threadKey, false, true);
+    return PickFrom({
+        "otw", "ready", "drink", "food", "gz", "need?",
+        "summon pls", "buffs", "1 sec", "mana", "greed"
+    }, threadKey, false, true);
+}
+
+std::string PickAmbientRareLine(std::string const& nick, std::string const& threadKey)
+{
+    if (nick.empty())
+        return "";
+    return PickSlotted({
+        nick + " up",
+        nick + " is up",
+        "got " + nick
+    }, threadKey);
 }
 
 std::string PickAmbientDungeonLine(std::string const& dungeon, std::string const& threadKey)
@@ -1783,14 +2180,19 @@ bool LooksUnlikeWowChat(std::string const& line, ChatLineStyle style)
         "a friend", "my friend", "try asking", "look for a",
         "paladin in", "warrior in", "priest in", "mage in", "druid in",
         "shaman in", "rogue in", "hunter in", "warlock in", "dk in",
-        "death knight in"
+        "death knight in",
+        "kill yourself", "kys", "off yourself", "where you live",
+        "your address", "dox incoming", "posted your info",
+        "christian", "christians", "jesus", "the bible", "your god",
+        "fuck god", "fuck christ", "god is dead", "christ is fake",
+        "god isnt", "god isn't", "god wont", "god won't", "god aint", "god ain't"
     };
     for (char const* ban : bans)
     {
         if (lower.find(ban) != std::string::npos)
             return true;
     }
-    if (style != ChatLineStyle::Flame)
+    if (style != ChatLineStyle::Flame && !BotChatAdultMix())
     {
         if (lower.find("shut up") != std::string::npos || HasWord(lower, "stfu"))
             return true;
@@ -1850,7 +2252,7 @@ std::string SanitizeBotChatLine(std::string const& line, ChatLineStyle style)
     }
     if (out.empty() || LooksLikeSlangSalad(out) || LooksUnlikeWowChat(out, style))
         return "";
-    return out;
+    return BotChatBlowupYell(out);
 }
 
 void NoteSocialCue(Player* bot, SocialAct act)

@@ -1238,6 +1238,7 @@ namespace
     bool LooksLikeTradeChat(const std::string& lower)
     {
         return HasWord(lower, "wts") || HasWord(lower, "wtb") || HasWord(lower, "wtt") ||
+               HasWord(lower, "portal") || HasWord(lower, "port") || HasWord(lower, "summon") ||
                (HasWord(lower, "pst") && (lower.find("sell") != std::string::npos || lower.find("buy") != std::string::npos));
     }
 }
