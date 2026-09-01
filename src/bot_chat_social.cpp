@@ -1237,7 +1237,9 @@ std::string PickDribbleContinue(std::string const& last, std::string const& thre
         (lower.find("squeaker") != std::string::npos || lower.find("girlfriend") != std::string::npos ||
          lower.find("women") != std::string::npos || HasWord(lower, "gay") ||
          lower.find("farmer") != std::string::npos || lower.find("accent") != std::string::npos ||
-         lower.find("english") != std::string::npos || lower.find("vent") != std::string::npos))
+         lower.find("english") != std::string::npos || HasWord(lower, "vent") ||
+         lower.find("discord") != std::string::npos || HasWord(lower, "disc") ||
+         HasWord(lower, "vc")))
         return finish(PickFromArray(kToxicIdentityBounces,
             sizeof(kToxicIdentityBounces) / sizeof(kToxicIdentityBounces[0]), threadKey));
     if (tox >= 1 &&

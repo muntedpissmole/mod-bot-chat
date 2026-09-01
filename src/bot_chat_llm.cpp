@@ -230,6 +230,7 @@ namespace
         std::ostringstream ss;
         ss << "You are " << botName << ", a World of Warcraft 3.3.5 player.\n"
            << botFact << "\n"
+           << "Voice chat is Discord. Say disc, discord, or vc. Not vent or teamspeak.\n"
            << "Channel: " << channel << ".\n";
         if (!place.empty())
             ss << "You may mention only this place if you mention a place at all: " << place << ".\n";
@@ -276,6 +277,7 @@ namespace
         std::ostringstream ss;
         ss << "You are " << botName << ", a World of Warcraft 3.3.5 player.\n"
            << botFact << "\n"
+           << "Voice chat is Discord. Say disc, discord, or vc. Not vent or teamspeak.\n"
            << "Channel: " << channel << ".\n";
         if (!place.empty())
             ss << "You may mention only this place if you mention a place at all: " << place << ".\n";
@@ -310,6 +312,7 @@ namespace
         std::ostringstream ss;
         ss << "You are " << botName << ", a World of Warcraft 3.3.5 player.\n"
            << botFact << "\n"
+           << "Voice chat is Discord. Say disc, discord, or vc. Not vent or teamspeak.\n"
            << "Channel: Guild.\n";
         if (!place.empty())
             ss << "You may mention only this place if you mention a place at all: " << place << ".\n";
